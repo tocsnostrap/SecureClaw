@@ -97,6 +97,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const duration = Date.now() - startTime;
       console.log(`[SecureClaw] ✅ Stream completed - Chunks: ${chunkCount}, Chars: ${totalChars}, Duration: ${duration}ms`);
       // Note: Token usage is logged by the agent layer (see agents.ts onFinish callback)
+      
+      // Check if response seems truncated (no proper ending)
+      const lastChunkIndicator = chunkCount > 0 && totalChars > 1000;
+      if (lastChunkIndicator) {
+        console.log(`[SecureClaw] 💡 Response was substantial (${totalChars} chars). If truncated, user can ask to "continue".`);
+      }
 
       res.write("data: [DONE]\n\n");
       res.end();

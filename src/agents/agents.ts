@@ -7,7 +7,30 @@ import { logAction } from "./audit-log";
 const xai = createXai({ apiKey: process.env.XAI_API_KEY || "" });
 // Use fast model for development, full model for production
 const DEFAULT_MODEL = process.env.NODE_ENV === "production" ? "grok-4" : "grok-4.1-fast";
-const MAX_TOKENS = parseInt(process.env.GROK_MAX_TOKENS || "2048", 10);
+const BASE_MAX_TOKENS = parseInt(process.env.GROK_MAX_TOKENS || "2048", 10);
+
+/**
+ * Dynamically adjust token limit based on query complexity
+ */
+function getTokenLimit(messages: AgentMessage[]): number {
+  const lastMessage = messages[messages.length - 1]?.content?.toLowerCase() || "";
+  
+  // Increase tokens for code generation, creative tasks, or long queries
+  const needsMoreTokens = 
+    lastMessage.includes("create") ||
+    lastMessage.includes("generate") ||
+    lastMessage.includes("build") ||
+    lastMessage.includes("code") ||
+    lastMessage.includes("game") ||
+    lastMessage.includes("simulation") ||
+    lastMessage.includes("robot") ||
+    lastMessage.length > 100;
+  
+  const tokenLimit = needsMoreTokens ? BASE_MAX_TOKENS * 1.5 : BASE_MAX_TOKENS;
+  console.log(`[Agents] Token limit for this query: ${tokenLimit} (base: ${BASE_MAX_TOKENS})`);
+  
+  return Math.floor(tokenLimit);
+}
 
 export type AgentRole = "orchestrator" | "scheduler" | "research" | "device";
 
@@ -126,11 +149,12 @@ export async function routeToAgent(
   ];
 
   try {
+    const tokenLimit = getTokenLimit(messages);
     const result = await generateText({
       model: xai(DEFAULT_MODEL),
       messages: allMessages,
       tools,
-      maxTokens: MAX_TOKENS as any,
+      maxTokens: tokenLimit as any,
       maxSteps: 5,
     });
 
@@ -204,15 +228,21 @@ export function streamAgentResponse(
     ...messages.map((m) => ({ role: m.role, content: m.content })),
   ];
 
+  const tokenLimit = getTokenLimit(messages);
   return streamText({
     model: xai(DEFAULT_MODEL),
     messages: allMessages,
     tools,
-    maxTokens: MAX_TOKENS as any,
+    maxTokens: tokenLimit as any,
     maxSteps: 5,
     onFinish: async (event) => {
       if (event.usage) {
         console.log(`[Agent ${agent} Stream] Tokens: prompt=${event.usage.promptTokens}, completion=${event.usage.completionTokens}, total=${event.usage.totalTokens}`);
+        
+        // Warn if we hit the token limit
+        if (event.usage.completionTokens >= tokenLimit * 0.95) {
+          console.warn(`[Agent ${agent}] ⚠️ Response may be truncated - used ${event.usage.completionTokens}/${tokenLimit} tokens`);
+        }
       }
       if (!event.text || event.text.trim().length < 10) {
         console.warn(`[Agent ${agent} Stream] Empty/short response: "${event.text}"`);
