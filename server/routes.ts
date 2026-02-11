@@ -83,9 +83,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.write("data: [DONE]\n\n");
       res.end();
     } catch (error: any) {
-      console.error("[SecureClaw] AI streaming error:", error.message);
+      const errMsg = error.message || "AI service error";
+      console.error("[SecureClaw] AI streaming error:", errMsg);
+      if (error.stack) console.error("[SecureClaw] Stack:", error.stack);
+
+      let userMessage = "Something went wrong with the AI service.";
+      if (errMsg.includes("401") || errMsg.includes("Unauthorized") || errMsg.includes("API key")) {
+        userMessage = "Invalid API key. Please check your XAI_API_KEY.";
+      } else if (errMsg.includes("429") || errMsg.includes("rate")) {
+        userMessage = "Rate limit reached. Please wait a moment and try again.";
+      } else if (errMsg.includes("timeout") || errMsg.includes("ECONNREFUSED")) {
+        userMessage = "AI service is temporarily unavailable. Try again shortly.";
+      } else if (errMsg.includes("model")) {
+        userMessage = `Model error: ${errMsg}`;
+      } else {
+        userMessage = errMsg;
+      }
+
       res.write(
-        `data: ${JSON.stringify({ error: error.message || "AI service error" })}\n\n`
+        `data: ${JSON.stringify({ error: userMessage })}\n\n`
       );
       res.write("data: [DONE]\n\n");
       res.end();

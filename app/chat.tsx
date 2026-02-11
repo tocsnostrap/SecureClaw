@@ -104,6 +104,12 @@ export default function ChatScreen() {
     }
   }, [id]);
 
+  useEffect(() => {
+    if (id && initializedRef.current && messages.length > 0 && !isStreaming) {
+      updateConversation(id, messages);
+    }
+  }, [isStreaming]);
+
   const handleSend = useCallback(async () => {
     const text = inputText.trim();
     if (!text || isStreaming) return;
@@ -231,12 +237,6 @@ export default function ChatScreen() {
     } finally {
       setIsStreaming(false);
       setShowTyping(false);
-      if (id) {
-        setMessages((current) => {
-          updateConversation(id, current);
-          return current;
-        });
-      }
     }
   }, [inputText, isStreaming, messages, id, updateConversation]);
 
