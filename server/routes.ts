@@ -36,8 +36,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api", apiLimiter);
 
   app.post("/api/chat", async (req: Request, res: Response) => {
+    console.log("[SecureClaw] Chat request received, messages:", req.body?.messages?.length || 0);
+
     const validation = ChatRequestSchema.safeParse(req.body);
     if (!validation.success) {
+      console.error("[SecureClaw] Validation failed:", JSON.stringify(validation.error.issues));
       return res.status(400).json({
         error: "Invalid request",
         details: validation.error.issues,
@@ -170,7 +173,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/agents/tasks/:id/toggle", async (req: Request, res: Response) => {
     try {
       const enabled = req.body.enabled !== false;
-      const task = toggleProactiveTask(req.params.id, enabled);
+      const task = toggleProactiveTask(req.params.id as string, enabled);
       if (!task) return res.status(404).json({ error: "Task not found" });
       res.json({ task });
     } catch (error: any) {
@@ -180,7 +183,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/agents/tasks/:id/run", async (req: Request, res: Response) => {
     try {
-      const result = await executeTaskNow(req.params.id);
+      const result = await executeTaskNow(req.params.id as string);
       if (!result) return res.status(404).json({ error: "Task not found" });
       res.json({ result });
     } catch (error: any) {
@@ -190,7 +193,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/agents/tasks/:id", async (req: Request, res: Response) => {
     try {
-      const success = deleteProactiveTask(req.params.id);
+      const success = deleteProactiveTask(req.params.id as string);
       if (!success) return res.status(404).json({ error: "Task not found" });
       res.json({ deleted: true });
     } catch (error: any) {

@@ -86,6 +86,9 @@ export default function ChatScreen() {
   const { getConversation, updateConversation } = useChat();
   const inputRef = useRef<TextInput>(null);
   const initializedRef = useRef(false);
+  const isStreamingRef = useRef(false);
+  const messagesRef = useRef<Message[]>([]);
+  const abortRef = useRef<AbortController | null>(null);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
@@ -93,6 +96,10 @@ export default function ChatScreen() {
   const [showTyping, setShowTyping] = useState(false);
   const [activeAgent, setActiveAgent] = useState<string | null>(null);
   const [lastToolCalls, setLastToolCalls] = useState<any[]>([]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     if (!initializedRef.current && id) {
@@ -112,13 +119,13 @@ export default function ChatScreen() {
 
   const handleSend = useCallback(async () => {
     const text = inputText.trim();
-    if (!text || isStreaming) return;
+    if (!text || isStreamingRef.current) return;
 
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
 
-    const currentMessages = [...messages];
+    const currentMessages = [...messagesRef.current];
     const userMessage: Message = {
       id: generateUniqueId(),
       role: "user",
@@ -129,11 +136,13 @@ export default function ChatScreen() {
     const updatedWithUser = [...currentMessages, userMessage];
     setMessages(updatedWithUser);
     setInputText("");
+    isStreamingRef.current = true;
     setIsStreaming(true);
     setShowTyping(true);
 
     let fullContent = "";
     let assistantAdded = false;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
     try {
       const baseUrl = getApiUrl();
@@ -142,6 +151,9 @@ export default function ChatScreen() {
         { role: "user" as const, content: text },
       ];
 
+      abortRef.current = new AbortController();
+      const timeoutId = setTimeout(() => abortRef.current?.abort(), 60000);
+
       const response = await fetch(`${baseUrl}api/chat`, {
         method: "POST",
         headers: {
@@ -149,13 +161,17 @@ export default function ChatScreen() {
           Accept: "text/event-stream",
         },
         body: JSON.stringify({ messages: chatHistory }),
+        signal: abortRef.current.signal,
       });
 
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`);
+        const errorBody = await response.text().catch(() => "");
+        throw new Error(`Server error ${response.status}: ${errorBody || response.statusText}`);
       }
 
-      const reader = response.body?.getReader();
+      reader = response.body?.getReader() ?? null;
       if (!reader) throw new Error("No response body");
 
       const decoder = new TextDecoder();
@@ -218,10 +234,14 @@ export default function ChatScreen() {
       }
     } catch (error: any) {
       setShowTyping(false);
-      const errorMsg =
-        error.message?.includes("503") || error.message?.includes("not configured")
-          ? "AI service is not configured. Please set your XAI_API_KEY."
-          : `Connection error: ${error.message}`;
+      let errorMsg: string;
+      if (error.name === "AbortError") {
+        errorMsg = "Request timed out. Please try again.";
+      } else if (error.message?.includes("503") || error.message?.includes("not configured")) {
+        errorMsg = "AI service is not configured. Please set your XAI_API_KEY.";
+      } else {
+        errorMsg = `Connection error: ${error.message}`;
+      }
 
       if (!assistantAdded) {
         setMessages((prev) => [
@@ -235,10 +255,13 @@ export default function ChatScreen() {
         ]);
       }
     } finally {
+      try { reader?.releaseLock(); } catch (_) {}
+      abortRef.current = null;
+      isStreamingRef.current = false;
       setIsStreaming(false);
       setShowTyping(false);
     }
-  }, [inputText, isStreaming, messages, id, updateConversation]);
+  }, [inputText]);
 
   const reversedMessages = [...messages].reverse();
 

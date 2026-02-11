@@ -118,13 +118,13 @@ export async function routeToAgent(
     model: xai(DEFAULT_MODEL),
     messages: allMessages,
     tools,
-    maxTokens: 4096,
+    maxTokens: 4096 as any,
     maxSteps: 5,
   });
 
   const toolCalls = result.steps
     .flatMap((step) => step.toolCalls || [])
-    .map((tc) => ({
+    .map((tc: any) => ({
       tool: tc.toolName,
       args: tc.args,
     }));
@@ -167,7 +167,7 @@ export function streamAgentResponse(
     model: xai(DEFAULT_MODEL),
     messages: allMessages,
     tools,
-    maxTokens: 4096,
+    maxTokens: 4096 as any,
     maxSteps: 5,
   });
 }
