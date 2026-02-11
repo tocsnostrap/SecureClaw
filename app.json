@@ -1,24 +1,27 @@
 {
   "expo": {
-    "name": "My App",
-    "slug": "my-app",
+    "name": "SecureClaw",
+    "slug": "secureclaw",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "myapp",
-    "userInterfaceStyle": "automatic",
+    "scheme": "secureclaw",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0D1117"
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.myapp"
+      "bundleIdentifier": "com.secureclaw.app",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "SecureClaw uses Face ID to protect your conversations"
+      }
     },
     "android": {
-      "package": "com.myapp",
+      "package": "com.secureclaw.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
