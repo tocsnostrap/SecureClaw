@@ -197,6 +197,7 @@ export default function DashboardScreen() {
   const tasksQuery = useQuery<{ tasks: ProactiveTask[] }>({
     queryKey: ["/api/agents/tasks"],
     refetchInterval: 10000,
+    staleTime: 0,
   });
 
   const templatesQuery = useQuery<{ templates: TaskTemplate[] }>({
@@ -205,49 +206,48 @@ export default function DashboardScreen() {
 
   const auditQuery = useQuery<{ log: AuditEntry[] }>({
     queryKey: ["/api/audit"],
-    refetchInterval: 15000,
+    refetchInterval: 5000,
+    staleTime: 0,
   });
 
   const auditStatsQuery = useQuery<AuditStats>({
     queryKey: ["/api/audit/stats"],
-    refetchInterval: 15000,
+    refetchInterval: 5000,
+    staleTime: 0,
   });
+
+  const invalidateAll = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["/api/agents/tasks"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/audit"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/audit/stats"] });
+  }, []);
 
   const toggleTaskMutation = useMutation({
     mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
       return apiRequest("POST", `/api/agents/tasks/${id}/toggle`, { enabled });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/agents/tasks"] });
-    },
+    onSuccess: invalidateAll,
   });
 
   const runTaskMutation = useMutation({
     mutationFn: async (id: string) => {
       return apiRequest("POST", `/api/agents/tasks/${id}/run`);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/agents/tasks"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/audit"] });
-    },
+    onSuccess: invalidateAll,
   });
 
   const deleteTaskMutation = useMutation({
     mutationFn: async (id: string) => {
       return apiRequest("DELETE", `/api/agents/tasks/${id}`);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/agents/tasks"] });
-    },
+    onSuccess: invalidateAll,
   });
 
   const createTaskMutation = useMutation({
     mutationFn: async (template: TaskTemplate) => {
       return apiRequest("POST", "/api/agents/tasks", template);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/agents/tasks"] });
-    },
+    onSuccess: invalidateAll,
   });
 
   const onRefresh = useCallback(async () => {

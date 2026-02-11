@@ -1,5 +1,6 @@
 import { routeToAgent, AgentMessage } from "./agents";
-import { logAction } from "./audit-log";
+import { logAction, getAuditLog, getAuditStats, clearAuditLog } from "./audit-log";
+export { getAuditLog, getAuditStats, clearAuditLog };
 
 export interface ProactiveTask {
   id: string;

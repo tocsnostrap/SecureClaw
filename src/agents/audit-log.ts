@@ -1,3 +1,6 @@
+import * as fs from "fs";
+import * as path from "path";
+
 export interface AuditEntry {
   id: string;
   timestamp: number;
@@ -11,27 +14,52 @@ export interface AuditEntry {
   userId: string | null;
 }
 
-const auditLog: AuditEntry[] = [];
+const AUDIT_FILE = path.join(process.cwd(), ".audit-log.json");
 const MAX_LOG_SIZE = 1000;
 
-let auditCounter = 0;
-function generateAuditId(): string {
-  auditCounter++;
-  return `audit-${Date.now()}-${auditCounter}`;
+interface AuditState {
+  log: AuditEntry[];
+  counter: number;
+}
+
+function readState(): AuditState {
+  try {
+    if (fs.existsSync(AUDIT_FILE)) {
+      const data = fs.readFileSync(AUDIT_FILE, "utf-8");
+      return JSON.parse(data);
+    }
+  } catch {}
+  return { log: [], counter: 0 };
+}
+
+function writeState(state: AuditState): void {
+  try {
+    fs.writeFileSync(AUDIT_FILE, JSON.stringify(state), "utf-8");
+  } catch (err) {
+    console.error("[Audit] Failed to write audit log:", err);
+  }
+}
+
+function generateAuditId(state: AuditState): string {
+  state.counter++;
+  return `audit-${Date.now()}-${state.counter}`;
 }
 
 export function logAction(entry: Omit<AuditEntry, "id" | "timestamp">): AuditEntry {
+  const state = readState();
   const full: AuditEntry = {
     ...entry,
-    id: generateAuditId(),
+    id: generateAuditId(state),
     timestamp: Date.now(),
   };
 
-  auditLog.unshift(full);
+  state.log.unshift(full);
 
-  if (auditLog.length > MAX_LOG_SIZE) {
-    auditLog.length = MAX_LOG_SIZE;
+  if (state.log.length > MAX_LOG_SIZE) {
+    state.log.length = MAX_LOG_SIZE;
   }
+
+  writeState(state);
 
   const emoji =
     full.status === "executed"
@@ -50,7 +78,8 @@ export function logAction(entry: Omit<AuditEntry, "id" | "timestamp">): AuditEnt
 }
 
 export function getAuditLog(limit: number = 50, agent?: string): AuditEntry[] {
-  let filtered = auditLog;
+  const state = readState();
+  let filtered = state.log;
   if (agent) {
     filtered = filtered.filter((e) => e.agent === agent);
   }
@@ -64,15 +93,16 @@ export function getAuditStats(): {
   failed: number;
   byAgent: Record<string, number>;
 } {
+  const state = readState();
   const stats = {
-    total: auditLog.length,
+    total: state.log.length,
     executed: 0,
     denied: 0,
     failed: 0,
     byAgent: {} as Record<string, number>,
   };
 
-  for (const entry of auditLog) {
+  for (const entry of state.log) {
     if (entry.status === "executed") stats.executed++;
     if (entry.status === "denied") stats.denied++;
     if (entry.status === "failed") stats.failed++;
@@ -83,7 +113,7 @@ export function getAuditStats(): {
 }
 
 export function clearAuditLog(): void {
-  auditLog.length = 0;
+  writeState({ log: [], counter: 0 });
 }
 
 export const TOOL_ALLOWLIST = new Set([

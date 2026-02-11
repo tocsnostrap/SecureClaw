@@ -3,6 +3,8 @@ import { createServer, type Server } from "node:http";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { WebSocketServer, WebSocket } from "ws";
+import { streamAgentResponse, routeToAgent, listAgents } from "../src/agents/agents";
+import { getProactiveTasks, createProactiveTask, toggleProactiveTask, deleteProactiveTask, executeTaskNow, DEFAULT_TASK_TEMPLATES, getAuditLog, getAuditStats } from "../src/agents/proactive";
 
 const ChatRequestSchema = z.object({
   messages: z.array(
@@ -54,7 +56,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.flushHeaders();
 
     try {
-      const { streamAgentResponse } = await import("../src/agents/agents");
       const agent = validation.data.agent || "orchestrator";
       const result = streamAgentResponse(validation.data.messages, agent);
 
@@ -87,7 +88,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/agents", async (_req: Request, res: Response) => {
     try {
-      const { listAgents } = await import("../src/agents/agents");
       res.json({ agents: listAgents() });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -105,7 +105,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const { routeToAgent } = await import("../src/agents/agents");
       const result = await routeToAgent(
         validation.data.messages,
         validation.data.agent as any
@@ -118,7 +117,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/agents/tasks", async (_req: Request, res: Response) => {
     try {
-      const { getProactiveTasks } = await import("../src/agents/proactive");
       res.json({ tasks: getProactiveTasks() });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -132,7 +130,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const { createProactiveTask } = await import("../src/agents/proactive");
       const task = createProactiveTask(validation.data);
       res.json({ task });
     } catch (error: any) {
@@ -142,7 +139,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/agents/tasks/templates", async (_req: Request, res: Response) => {
     try {
-      const { DEFAULT_TASK_TEMPLATES } = await import("../src/agents/proactive");
       res.json({ templates: DEFAULT_TASK_TEMPLATES });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -151,7 +147,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/agents/tasks/:id/toggle", async (req: Request, res: Response) => {
     try {
-      const { toggleProactiveTask } = await import("../src/agents/proactive");
       const enabled = req.body.enabled !== false;
       const task = toggleProactiveTask(req.params.id, enabled);
       if (!task) return res.status(404).json({ error: "Task not found" });
@@ -163,7 +158,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/agents/tasks/:id/run", async (req: Request, res: Response) => {
     try {
-      const { executeTaskNow } = await import("../src/agents/proactive");
       const result = await executeTaskNow(req.params.id);
       if (!result) return res.status(404).json({ error: "Task not found" });
       res.json({ result });
@@ -174,7 +168,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/agents/tasks/:id", async (req: Request, res: Response) => {
     try {
-      const { deleteProactiveTask } = await import("../src/agents/proactive");
       const success = deleteProactiveTask(req.params.id);
       if (!success) return res.status(404).json({ error: "Task not found" });
       res.json({ deleted: true });
@@ -185,7 +178,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/audit", async (req: Request, res: Response) => {
     try {
-      const { getAuditLog } = await import("../src/agents/audit-log");
       const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
       const agent = req.query.agent as string | undefined;
       res.json({ log: getAuditLog(limit, agent) });
@@ -196,7 +188,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/audit/stats", async (_req: Request, res: Response) => {
     try {
-      const { getAuditStats } = await import("../src/agents/audit-log");
       res.json(getAuditStats());
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -300,7 +291,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ws.send(JSON.stringify({ type: "error", message: "AI not configured" }));
             return;
           }
-          const { routeToAgent } = await import("../src/agents/agents");
           const result = await routeToAgent(raw.messages || [], raw.agent);
           ws.send(JSON.stringify({
             type: "chat_response",
