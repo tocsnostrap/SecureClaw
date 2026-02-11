@@ -96,6 +96,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const duration = Date.now() - startTime;
       console.log(`[SecureClaw] ✅ Stream completed - Chunks: ${chunkCount}, Chars: ${totalChars}, Duration: ${duration}ms`);
+      // Note: Token usage is logged by the agent layer (see agents.ts onFinish callback)
 
       res.write("data: [DONE]\n\n");
       res.end();
