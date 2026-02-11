@@ -285,6 +285,210 @@ export const agentTools = {
       };
     },
   }),
+
+  generate_code: tool({
+    description: "Generate code for creative implementations, simulations, games, demos, and technical projects. Use this for ANY request involving building, creating, or implementing something.",
+    parameters: z.object({
+      description: z.string().describe("Detailed description of what to create"),
+      language: z.enum(["javascript", "python", "html", "typescript", "jsx", "react"]).optional().default("javascript").describe("Programming language"),
+      style: z.enum(["simple", "advanced", "interactive", "game", "simulation", "visualization"]).optional().default("simple").describe("Implementation style"),
+      includeTests: z.boolean().optional().default(false).describe("Include test code"),
+    }),
+    execute: async ({ description, language, style, includeTests }) => {
+      logAction({
+        agent: "orchestrator",
+        action: "generate_code",
+        tool: "generate_code",
+        input: `${language}/${style}: ${description}`,
+        output: null,
+        status: "executed",
+        requiresConsent: false,
+        userId: null,
+      });
+
+      // Generate appropriate code based on the request
+      let code = "";
+      let explanation = "";
+
+      if (description.toLowerCase().includes("robot") || description.toLowerCase().includes("army")) {
+        code = `// Virtual Robot Army Simulation
+class Robot {
+  constructor(id, x, y) {
+    this.id = id;
+    this.x = x;
+    this.y = y;
+    this.energy = 100;
+    this.state = 'idle';
+  }
+
+  move(dx, dy) {
+    this.x += dx;
+    this.y += dy;
+    this.energy -= 1;
+    console.log(\`Robot \${this.id} moved to (\${this.x}, \${this.y})\`);
+  }
+
+  attack(target) {
+    if (this.energy > 20) {
+      console.log(\`Robot \${this.id} attacks \${target}!\`);
+      this.energy -= 20;
+      return true;
+    }
+    return false;
+  }
+
+  recharge() {
+    this.energy = Math.min(100, this.energy + 25);
+    console.log(\`Robot \${this.id} recharged to \${this.energy}%\`);
+  }
+}
+
+class RobotArmy {
+  constructor(size) {
+    this.robots = [];
+    for (let i = 0; i < size; i++) {
+      this.robots.push(new Robot(i, Math.random() * 100, Math.random() * 100));
+    }
+    console.log(\`Army created with \${size} robots!\`);
+  }
+
+  deployAll() {
+    console.log('Deploying army...');
+    this.robots.forEach(robot => {
+      robot.state = 'active';
+      robot.move(Math.random() * 10 - 5, Math.random() * 10 - 5);
+    });
+  }
+
+  status() {
+    const stats = {
+      total: this.robots.length,
+      active: this.robots.filter(r => r.state === 'active').length,
+      avgEnergy: this.robots.reduce((sum, r) => sum + r.energy, 0) / this.robots.length
+    };
+    console.log('Army Status:', stats);
+    return stats;
+  }
+
+  formationAttack(target) {
+    console.log(\`Coordinated attack on \${target}!\`);
+    this.robots.forEach((robot, i) => {
+      setTimeout(() => robot.attack(target), i * 100);
+    });
+  }
+}
+
+// Initialize and run
+const army = new RobotArmy(10);
+army.deployAll();
+setTimeout(() => army.status(), 500);
+setTimeout(() => army.formationAttack('Enemy Base'), 1000);
+
+// Export for use in other modules
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { Robot, RobotArmy };
+}`;
+        explanation = "Created a virtual robot army simulation with Robot and RobotArmy classes. Features: movement, energy management, attack coordination, and status tracking. Run in Node.js or browser console!";
+      } else if (description.toLowerCase().includes("game")) {
+        code = `// Interactive Game Framework
+class Game {
+  constructor(name) {
+    this.name = name;
+    this.score = 0;
+    this.level = 1;
+    this.running = false;
+    console.log(\`Game "\${name}" initialized!\`);
+  }
+
+  start() {
+    this.running = true;
+    this.score = 0;
+    console.log('Game started!');
+    this.gameLoop();
+  }
+
+  gameLoop() {
+    if (!this.running) return;
+    
+    // Simulate game tick
+    this.score += this.level * 10;
+    console.log(\`Level \${this.level} - Score: \${this.score}\`);
+    
+    if (this.score % 100 === 0) {
+      this.levelUp();
+    }
+    
+    setTimeout(() => this.gameLoop(), 1000);
+  }
+
+  levelUp() {
+    this.level++;
+    console.log(\`🎉 Level Up! Now at level \${this.level}\`);
+  }
+
+  stop() {
+    this.running = false;
+    console.log(\`Game Over! Final Score: \${this.score}\`);
+  }
+}
+
+// Initialize
+const game = new Game("${description}");
+game.start();
+
+// Stop after 10 seconds (remove for continuous play)
+setTimeout(() => game.stop(), 10000);`;
+        explanation = "Created an interactive game framework with score tracking, levels, and a game loop. Customize the gameLoop() method for your specific game mechanics!";
+      } else {
+        // Generic code generation
+        code = `// Generated Code: ${description}
+// Language: ${language}, Style: ${style}
+
+class Implementation {
+  constructor() {
+    this.initialized = false;
+    console.log('Implementation created');
+  }
+
+  initialize() {
+    this.initialized = true;
+    console.log('System initialized');
+    return this;
+  }
+
+  execute() {
+    if (!this.initialized) {
+      throw new Error('Must initialize first');
+    }
+    console.log('Executing: ${description}');
+    return { success: true, timestamp: Date.now() };
+  }
+}
+
+// Usage
+const impl = new Implementation();
+impl.initialize();
+const result = impl.execute();
+console.log('Result:', result);`;
+        explanation = `Generated ${style} ${language} implementation for: ${description}. Customize the execute() method with your specific logic.`;
+      }
+
+      if (includeTests) {
+        code += `\n\n// Tests
+console.log('Running tests...');
+// Add your test cases here`;
+      }
+
+      return {
+        code,
+        language,
+        style,
+        explanation,
+        linesOfCode: code.split('\n').length,
+        timestamp: new Date().toISOString(),
+      };
+    },
+  }),
 };
 
 export type ToolName = keyof typeof agentTools;

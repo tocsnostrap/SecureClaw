@@ -300,4 +300,28 @@ export const DEFAULT_TASK_TEMPLATES = [
     prompt:
       "Search the web for the latest discussions and posts about AI safety, autonomous agents, and Grok. Summarize the top findings and any notable opinions.",
   },
+  {
+    name: "X Feed Monitor - AI & Tech",
+    description: "Monitor X/Twitter for AI, autonomous agents, and tech trends every 2 hours",
+    cronExpression: "0 */2 * * *",
+    agent: "research",
+    prompt:
+      "Search for trending discussions on X (Twitter) about: AI breakthroughs, autonomous agents, Grok updates, and emerging tech. Highlight the most important conversations and sentiment.",
+  },
+  {
+    name: "X Feed Monitor - Breaking News",
+    description: "Monitor X/Twitter for breaking news and viral trends every hour",
+    cronExpression: "0 * * * *",
+    agent: "research",
+    prompt:
+      "Search X (Twitter) for breaking news, viral trends, and important updates across technology, science, and world events. Focus on high-impact stories gaining traction.",
+  },
+  {
+    name: "Proactive Task Suggester",
+    description: "Analyze patterns and suggest new automations daily",
+    cronExpression: "0 20 * * *",
+    agent: "orchestrator",
+    prompt:
+      "Based on today's activities and user patterns, suggest 3 useful automation tasks that could be scheduled. Think creatively about recurring needs.",
+  },
 ];

@@ -36,11 +36,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api", apiLimiter);
 
   app.post("/api/chat", async (req: Request, res: Response) => {
-    console.log("[SecureClaw] Chat request received, messages:", req.body?.messages?.length || 0);
+    const startTime = Date.now();
+    const userQuery = req.body?.messages?.[req.body.messages.length - 1]?.content || "";
+    console.log(`[SecureClaw] Chat request received - Messages: ${req.body?.messages?.length || 0}, Query: "${userQuery.slice(0, 100)}..."`);
 
     const validation = ChatRequestSchema.safeParse(req.body);
     if (!validation.success) {
-      console.error("[SecureClaw] Validation failed:", JSON.stringify(validation.error.issues));
+      console.error("[SecureClaw] ❌ Validation failed:", JSON.stringify(validation.error.issues));
       return res.status(400).json({
         error: "Invalid request",
         details: validation.error.issues,
@@ -48,6 +50,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     if (!process.env.XAI_API_KEY) {
+      console.error("[SecureClaw] ❌ XAI_API_KEY not configured");
       return res.status(503).json({
         error: "AI service not configured. Set XAI_API_KEY environment variable.",
       });
@@ -58,12 +61,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders();
 
+    let chunkCount = 0;
+    let totalChars = 0;
+
     try {
       const agent = validation.data.agent || "orchestrator";
+      console.log(`[SecureClaw] 🤖 Routing to agent: ${agent}`);
+      
       const result = streamAgentResponse(validation.data.messages, agent);
 
       for await (const chunk of result.textStream) {
         if (chunk) {
+          chunkCount++;
+          totalChars += chunk.length;
           res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
         }
       }
@@ -77,30 +87,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
           : [];
 
         if (toolCalls.length > 0) {
+          console.log(`[SecureClaw] 🔧 Tools used: ${toolCalls.map(tc => tc.tool).join(", ")}`);
           res.write(`data: ${JSON.stringify({ toolCalls, agent })}\n\n`);
         }
       } catch (toolErr: any) {
-        console.error("[SecureClaw] Tool extraction error:", toolErr.message);
+        console.error("[SecureClaw] ⚠️ Tool extraction error:", toolErr.message);
       }
+
+      const duration = Date.now() - startTime;
+      console.log(`[SecureClaw] ✅ Stream completed - Chunks: ${chunkCount}, Chars: ${totalChars}, Duration: ${duration}ms`);
 
       res.write("data: [DONE]\n\n");
       res.end();
     } catch (error: any) {
       const errMsg = error.message || "AI service error";
-      console.error("[SecureClaw] AI streaming error:", errMsg);
-      if (error.stack) console.error("[SecureClaw] Stack:", error.stack);
+      const duration = Date.now() - startTime;
+      console.error(`[SecureClaw] ❌ AI streaming error after ${duration}ms:`, errMsg);
+      if (error.stack) console.error("[SecureClaw] Stack trace:", error.stack.split('\n').slice(0, 5).join('\n'));
 
       let userMessage = "Something went wrong with the AI service.";
       if (errMsg.includes("401") || errMsg.includes("Unauthorized") || errMsg.includes("API key")) {
         userMessage = "Invalid API key. Please check your XAI_API_KEY.";
+        console.error("[SecureClaw] 🔑 Authentication error - check API key");
       } else if (errMsg.includes("429") || errMsg.includes("rate")) {
         userMessage = "Rate limit reached. Please wait a moment and try again.";
+        console.error("[SecureClaw] 🚦 Rate limit exceeded");
       } else if (errMsg.includes("timeout") || errMsg.includes("ECONNREFUSED")) {
         userMessage = "AI service is temporarily unavailable. Try again shortly.";
+        console.error("[SecureClaw] ⏱️ Connection timeout");
+      } else if (errMsg.includes("content_filter") || errMsg.includes("safety")) {
+        userMessage = "Content filter triggered. Try rephrasing your request with more technical detail.";
+        console.error("[SecureClaw] 🛡️ Content safety filter triggered");
       } else if (errMsg.includes("model")) {
         userMessage = `Model error: ${errMsg}`;
+        console.error("[SecureClaw] 🤖 Model error:", errMsg);
       } else {
         userMessage = errMsg;
+        console.error("[SecureClaw] 💥 Unexpected error:", errMsg);
       }
 
       res.write(

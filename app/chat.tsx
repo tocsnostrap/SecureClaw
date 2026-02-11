@@ -54,13 +54,18 @@ function MessageBubble({ message }: { message: Message }) {
   );
 }
 
-function TypingIndicator() {
+function TypingIndicator({ status }: { status?: string }) {
   return (
     <View style={[styles.bubbleRow, styles.bubbleRowAssistant]}>
       <View style={styles.avatarCircle}>
         <Ionicons name="shield-checkmark" size={14} color={Colors.emerald} />
       </View>
       <View style={[styles.bubble, styles.bubbleAssistant, styles.typingBubble]}>
+        {status && (
+          <Text style={styles.adaptingText}>
+            {status}
+          </Text>
+        )}
         <View style={styles.typingDots}>
           <Animated.View
             entering={FadeIn.delay(0).duration(400)}
@@ -94,6 +99,7 @@ export default function ChatScreen() {
   const [inputText, setInputText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [showTyping, setShowTyping] = useState(false);
+  const [adaptingStatus, setAdaptingStatus] = useState<string>("");
   const [activeAgent, setActiveAgent] = useState<string | null>(null);
   const [lastToolCalls, setLastToolCalls] = useState<any[]>([]);
 
@@ -139,6 +145,7 @@ export default function ChatScreen() {
     isStreamingRef.current = true;
     setIsStreaming(true);
     setShowTyping(true);
+    setAdaptingStatus("Adapting...");
 
     let fullContent = "";
     let assistantAdded = false;
@@ -197,13 +204,22 @@ export default function ChatScreen() {
             }
             if (parsed.toolCalls) {
               setLastToolCalls(parsed.toolCalls);
-              if (parsed.agent) setActiveAgent(parsed.agent);
+              if (parsed.agent) {
+                setActiveAgent(parsed.agent);
+                setAdaptingStatus(`Agent: ${parsed.agent}`);
+              }
+              // Show tool being used
+              if (parsed.toolCalls.length > 0) {
+                const toolNames = parsed.toolCalls.map((tc: any) => tc.tool).join(", ");
+                setAdaptingStatus(`Using: ${toolNames}`);
+              }
             }
             if (parsed.content) {
               fullContent += parsed.content;
 
               if (!assistantAdded) {
                 setShowTyping(false);
+                setAdaptingStatus("");
                 setMessages((prev) => [
                   ...prev,
                   {
@@ -234,6 +250,7 @@ export default function ChatScreen() {
       }
     } catch (error: any) {
       setShowTyping(false);
+      setAdaptingStatus("");
       let errorMsg: string;
       if (error.name === "AbortError") {
         errorMsg = "Request timed out. Please try again.";
@@ -260,6 +277,7 @@ export default function ChatScreen() {
       isStreamingRef.current = false;
       setIsStreaming(false);
       setShowTyping(false);
+      setAdaptingStatus("");
     }
   }, [inputText]);
 
@@ -308,7 +326,7 @@ export default function ChatScreen() {
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => <MessageBubble message={item} />}
           inverted={messages.length > 0}
-          ListHeaderComponent={showTyping ? <TypingIndicator /> : null}
+          ListHeaderComponent={showTyping ? <TypingIndicator status={adaptingStatus} /> : null}
           ListEmptyComponent={
             <View style={styles.emptyChat}>
               <View style={styles.emptyChatIcon}>
@@ -493,6 +511,13 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: Colors.dark.secondaryText,
+  },
+  adaptingText: {
+    fontSize: 12,
+    fontFamily: "SpaceGrotesk_400Regular",
+    color: Colors.emerald,
+    marginBottom: 6,
+    fontStyle: "italic",
   },
   emptyChat: {
     alignItems: "center",
