@@ -25,6 +25,7 @@ function RootLayoutNav() {
       <Stack.Screen name="index" />
       <Stack.Screen name="conversations" />
       <Stack.Screen name="chat" />
+      <Stack.Screen name="dashboard" />
       <Stack.Screen name="+not-found" />
     </Stack>
   );

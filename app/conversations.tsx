@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons, Feather } from "@expo/vector-icons";
+import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import Animated, { FadeIn, FadeInUp, SlideInRight } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/lib/auth-context";
@@ -152,6 +152,9 @@ export default function ConversationsScreen() {
           <Text style={styles.headerTitle}>SecureClaw</Text>
         </View>
         <View style={styles.headerActions}>
+          <Pressable onPress={() => router.push("/dashboard")} hitSlop={12}>
+            <MaterialCommunityIcons name="brain" size={22} color={Colors.emerald} />
+          </Pressable>
           <Pressable onPress={handleLock} hitSlop={12}>
             <Ionicons name="lock-closed" size={20} color={Colors.dark.secondaryText} />
           </Pressable>

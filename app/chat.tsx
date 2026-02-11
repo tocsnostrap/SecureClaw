@@ -12,7 +12,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { fetch } from "expo/fetch";
@@ -91,6 +91,8 @@ export default function ChatScreen() {
   const [inputText, setInputText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [showTyping, setShowTyping] = useState(false);
+  const [activeAgent, setActiveAgent] = useState<string | null>(null);
+  const [lastToolCalls, setLastToolCalls] = useState<any[]>([]);
 
   useEffect(() => {
     if (!initializedRef.current && id) {
@@ -170,6 +172,10 @@ export default function ChatScreen() {
             const parsed = JSON.parse(data);
             if (parsed.error) {
               throw new Error(parsed.error);
+            }
+            if (parsed.toolCalls) {
+              setLastToolCalls(parsed.toolCalls);
+              if (parsed.agent) setActiveAgent(parsed.agent);
             }
             if (parsed.content) {
               fullContent += parsed.content;
@@ -254,7 +260,14 @@ export default function ChatScreen() {
         </Pressable>
         <View style={styles.headerCenter}>
           <View style={styles.headerStatusDot} />
-          <Text style={styles.headerTitle}>Grok 4</Text>
+          <Text style={styles.headerTitle}>
+            {activeAgent ? `${activeAgent}` : "Grok 4"}
+          </Text>
+          {activeAgent && (
+            <View style={styles.agentBadge}>
+              <MaterialCommunityIcons name="brain" size={10} color={Colors.emerald} />
+            </View>
+          )}
           <View style={styles.encryptedBadge}>
             <Ionicons name="lock-closed" size={10} color={Colors.emerald} />
           </View>
@@ -367,6 +380,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: "SpaceGrotesk_600SemiBold",
     color: Colors.dark.text,
+  },
+  agentBadge: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "rgba(0, 217, 166, 0.15)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   encryptedBadge: {
     width: 18,
