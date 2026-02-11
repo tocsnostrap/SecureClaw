@@ -11,6 +11,15 @@ const ChatRequestSchema = z.object({
       content: z.string().min(1).max(10000),
     })
   ).min(1).max(50),
+  agent: z.enum(["orchestrator", "scheduler", "research", "device"]).optional(),
+});
+
+const TaskCreateSchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().min(1).max(1000),
+  cronExpression: z.string().min(1).max(50),
+  agent: z.enum(["orchestrator", "scheduler", "research", "device"]).default("orchestrator"),
+  prompt: z.string().min(1).max(5000),
 });
 
 const apiLimiter = rateLimit({
@@ -45,13 +54,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.flushHeaders();
 
     try {
-      const { streamGrok } = await import("../src/agents/providers/xai");
-      const result = await streamGrok(validation.data.messages);
+      const { streamAgentResponse } = await import("../src/agents/agents");
+      const agent = validation.data.agent || "orchestrator";
+      const result = streamAgentResponse(validation.data.messages, agent);
 
       for await (const chunk of result.textStream) {
         if (chunk) {
           res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
         }
+      }
+
+      const finalResult = await result;
+      const toolCalls = finalResult.steps
+        ?.flatMap((step: any) => step.toolCalls || [])
+        .map((tc: any) => ({ tool: tc.toolName, args: tc.args, result: tc.result })) || [];
+
+      if (toolCalls.length > 0) {
+        res.write(`data: ${JSON.stringify({ toolCalls, agent })}\n\n`);
       }
 
       res.write("data: [DONE]\n\n");
@@ -66,11 +85,136 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/agents", async (_req: Request, res: Response) => {
+    try {
+      const { listAgents } = await import("../src/agents/agents");
+      res.json({ agents: listAgents() });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/agents/route", async (req: Request, res: Response) => {
+    const validation = ChatRequestSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({ error: "Invalid request", details: validation.error.issues });
+    }
+
+    if (!process.env.XAI_API_KEY) {
+      return res.status(503).json({ error: "AI not configured" });
+    }
+
+    try {
+      const { routeToAgent } = await import("../src/agents/agents");
+      const result = await routeToAgent(
+        validation.data.messages,
+        validation.data.agent as any
+      );
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/agents/tasks", async (_req: Request, res: Response) => {
+    try {
+      const { getProactiveTasks } = await import("../src/agents/proactive");
+      res.json({ tasks: getProactiveTasks() });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/agents/tasks", async (req: Request, res: Response) => {
+    const validation = TaskCreateSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({ error: "Invalid request", details: validation.error.issues });
+    }
+
+    try {
+      const { createProactiveTask } = await import("../src/agents/proactive");
+      const task = createProactiveTask(validation.data);
+      res.json({ task });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/agents/tasks/templates", async (_req: Request, res: Response) => {
+    try {
+      const { DEFAULT_TASK_TEMPLATES } = await import("../src/agents/proactive");
+      res.json({ templates: DEFAULT_TASK_TEMPLATES });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/agents/tasks/:id/toggle", async (req: Request, res: Response) => {
+    try {
+      const { toggleProactiveTask } = await import("../src/agents/proactive");
+      const enabled = req.body.enabled !== false;
+      const task = toggleProactiveTask(req.params.id, enabled);
+      if (!task) return res.status(404).json({ error: "Task not found" });
+      res.json({ task });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/agents/tasks/:id/run", async (req: Request, res: Response) => {
+    try {
+      const { executeTaskNow } = await import("../src/agents/proactive");
+      const result = await executeTaskNow(req.params.id);
+      if (!result) return res.status(404).json({ error: "Task not found" });
+      res.json({ result });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/agents/tasks/:id", async (req: Request, res: Response) => {
+    try {
+      const { deleteProactiveTask } = await import("../src/agents/proactive");
+      const success = deleteProactiveTask(req.params.id);
+      if (!success) return res.status(404).json({ error: "Task not found" });
+      res.json({ deleted: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/audit", async (req: Request, res: Response) => {
+    try {
+      const { getAuditLog } = await import("../src/agents/audit-log");
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+      const agent = req.query.agent as string | undefined;
+      res.json({ log: getAuditLog(limit, agent) });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/audit/stats", async (_req: Request, res: Response) => {
+    try {
+      const { getAuditStats } = await import("../src/agents/audit-log");
+      res.json(getAuditStats());
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/health", (_req: Request, res: Response) => {
     res.json({
       status: "ok",
       service: "SecureClaw Gateway",
       ai: !!process.env.XAI_API_KEY ? "configured" : "not configured",
+      agents: {
+        orchestrator: true,
+        scheduler: true,
+        research: true,
+        device: true,
+      },
+      proactive: true,
       timestamp: new Date().toISOString(),
     });
   });
@@ -84,12 +228,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sandboxMode: "all",
         biometricAuth: true,
         encryption: "TLS1.3",
+        auditLog: true,
       },
       ai: {
         provider: "xAI",
         model: "grok-4",
         available: !!process.env.XAI_API_KEY,
       },
+      agents: {
+        orchestrator: { enabled: true, proactive: true },
+        scheduler: { enabled: true, proactive: true },
+        research: { enabled: true, proactive: false },
+        device: { enabled: true, proactive: false },
+      },
+      toolAllowlist: [
+        "web_search", "summarize", "schedule_task", "send_notification",
+        "get_weather", "get_time", "read_rss", "calculate", "translate", "set_reminder",
+      ],
     });
   });
 
@@ -145,9 +300,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ws.send(JSON.stringify({ type: "error", message: "AI not configured" }));
             return;
           }
-          const { callGrok } = await import("../src/agents/providers/xai");
-          const response = await callGrok(raw.messages || []);
-          ws.send(JSON.stringify({ type: "chat_response", content: response }));
+          const { routeToAgent } = await import("../src/agents/agents");
+          const result = await routeToAgent(raw.messages || [], raw.agent);
+          ws.send(JSON.stringify({
+            type: "chat_response",
+            content: result.response,
+            agent: result.agent,
+            toolCalls: result.toolCalls,
+          }));
         }
       } catch (err: any) {
         ws.send(JSON.stringify({ type: "error", message: err.message }));
