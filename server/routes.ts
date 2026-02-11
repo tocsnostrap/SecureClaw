@@ -65,13 +65,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      const finalResult = await result;
-      const toolCalls = finalResult.steps
-        ?.flatMap((step: any) => step.toolCalls || [])
-        .map((tc: any) => ({ tool: tc.toolName, args: tc.args, result: tc.result })) || [];
+      try {
+        const steps = await result.steps;
+        const toolCalls = Array.isArray(steps)
+          ? steps
+              .flatMap((step: any) => step.toolCalls || [])
+              .map((tc: any) => ({ tool: tc.toolName, args: tc.args, result: tc.result }))
+          : [];
 
-      if (toolCalls.length > 0) {
-        res.write(`data: ${JSON.stringify({ toolCalls, agent })}\n\n`);
+        if (toolCalls.length > 0) {
+          res.write(`data: ${JSON.stringify({ toolCalls, agent })}\n\n`);
+        }
+      } catch (toolErr: any) {
+        console.error("[SecureClaw] Tool extraction error:", toolErr.message);
       }
 
       res.write("data: [DONE]\n\n");
