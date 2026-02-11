@@ -1,7 +1,7 @@
 secureclaw:
   version: "1.0.0"
   name: "SecureClaw"
-  description: "Secure personal AI assistant powered by xAI Grok 4"
+  description: "Secure autonomous personal AI assistant powered by xAI Grok 4"
 
 security:
   dmPolicy: "pairing"
@@ -29,6 +29,11 @@ security:
         android:
           fingerprint: true
           faceUnlock: true
+  auditLog:
+    enabled: true
+    maxEntries: 1000
+    logToolCalls: true
+    logAgentRouting: true
 
 gateway:
   port: 18789
@@ -50,13 +55,93 @@ ai:
       maxTokens: 4096
       temperature: 0.7
 
+agents:
+  defaults:
+    proactive: true
+    maxSteps: 5
+    consentRequired: true
+  roles:
+    orchestrator:
+      enabled: true
+      proactive: true
+      tools:
+        - "web_search"
+        - "summarize"
+        - "schedule_task"
+        - "send_notification"
+        - "get_weather"
+        - "get_time"
+        - "read_rss"
+        - "calculate"
+        - "translate"
+        - "set_reminder"
+    scheduler:
+      enabled: true
+      proactive: true
+      tools:
+        - "schedule_task"
+        - "set_reminder"
+        - "get_time"
+        - "send_notification"
+    research:
+      enabled: true
+      proactive: false
+      tools:
+        - "web_search"
+        - "summarize"
+        - "read_rss"
+        - "get_weather"
+        - "translate"
+        - "calculate"
+    device:
+      enabled: true
+      proactive: false
+      tools:
+        - "send_notification"
+        - "set_reminder"
+        - "get_time"
+
+proactive:
+  enabled: true
+  taskTemplates:
+    - name: "Daily Morning Briefing"
+      cron: "0 9 * * *"
+      agent: "orchestrator"
+    - name: "Hourly News Monitor"
+      cron: "0 * * * *"
+      agent: "research"
+    - name: "Daily X Search"
+      cron: "0 18 * * *"
+      agent: "research"
+
+toolAllowlist:
+  - "web_search"
+  - "summarize"
+  - "schedule_task"
+  - "send_notification"
+  - "get_weather"
+  - "get_time"
+  - "read_rss"
+  - "calculate"
+  - "translate"
+  - "set_reminder"
+
 ios:
   bundleId: "com.secureclaw.app"
   minimumVersion: "16.0"
   permissions:
     - "NSFaceIDUsageDescription"
     - "NSLocalNetworkUsageDescription"
+    - "NSSpeechRecognitionUsageDescription"
+    - "NSMicrophoneUsageDescription"
   features:
     biometricAuth: true
     secureWebSocket: true
     certificatePinning: true
+    voiceWakeDetection: true
+    coreMLFallback: true
+    widgetKit: true
+    backgroundModes:
+      - "fetch"
+      - "processing"
+      - "remote-notification"
