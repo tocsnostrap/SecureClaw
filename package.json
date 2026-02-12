@@ -5,6 +5,7 @@
   "scripts": {
     "postinstall": "patch-package",
     "expo:dev": "EXPO_PACKAGER_PROXY_URL=https://$REPLIT_DEV_DOMAIN REACT_NATIVE_PACKAGER_HOSTNAME=$REPLIT_DEV_DOMAIN EXPO_PUBLIC_DOMAIN=$REPLIT_DEV_DOMAIN:5000 npx expo start --localhost",
+    "moltbot": "tsx src/moltbot/server.ts",
     "server:dev": "NODE_ENV=development tsx server/index.ts",
     "expo:start:static:build": "npx expo start --no-dev --minify --localhost",
     "expo:static:build": "node scripts/build.js",
@@ -27,6 +28,7 @@
     "@types/ws": "^8.18.1",
     "@ungap/structured-clone": "^1.3.0",
     "ai": "^6.0.79",
+    "better-sqlite3": "^12.6.2",
     "drizzle-orm": "^0.39.3",
     "drizzle-zod": "^0.7.0",
     "expo": "~54.0.27",
@@ -81,6 +83,7 @@
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@expo/ngrok": "^4.1.0",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.0",
     "@types/express-session": "^1.18.2",
     "@types/passport": "^1.0.17",

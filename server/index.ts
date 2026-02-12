@@ -5,6 +5,7 @@ import passport from "passport";
 import crypto from "crypto";
 import { registerRoutes } from "./routes";
 import { apiAuthMiddleware, validateSecrets } from "./auth-middleware";
+import { createMoltbotServer } from "../src/moltbot/server";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -274,6 +275,15 @@ function setupErrorHandler(app: express.Application) {
 
   // API authentication - must come before routes
   app.use(apiAuthMiddleware);
+
+  // Mount Moltbot autonomous agent at /moltbot/*
+  try {
+    const moltbotApp = createMoltbotServer();
+    app.use('/moltbot', moltbotApp);
+    log('[Moltbot] Autonomous agent mounted at /moltbot/*');
+  } catch (err: any) {
+    log(`[Moltbot] Not started: ${err.message}`);
+  }
 
   configureExpoAndLanding(app);
 
