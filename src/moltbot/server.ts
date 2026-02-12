@@ -1,48 +1,39 @@
 /**
  * MOLTBOT - Server
- * 
- * Clean Express API with web UI. Give it a goal, get results.
  */
 
 import express from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
-import { MoltbotAgent, onStepUpdate, stepListeners } from './agent';
+import { MoltbotAgent } from './agent';
 import { createProviderFromEnv } from './providers';
 import { listTools } from './tools';
 import { getDb, getTask, getUserTasks, getMemoryStats, searchMemories, getRecentMemories, saveMemory } from './db';
 
-import './tools'; // Register all tools
+import './tools';
 
-let agent: MoltbotAgent | null = null;
+let agent: MoltbotAgent;
 
-// Conversation history per user (in-memory, survives across requests)
-const conversations = new Map<string, Array<{ role: string; content: string; timestamp: number }>>();
-const MAX_HISTORY = 20;
+// Conversation history per user
+const conversations = new Map<string, Array<{ role: 'user' | 'assistant'; content: string }>>();
 
-function getConversation(userId: string) {
+function getHistory(userId: string) {
   if (!conversations.has(userId)) conversations.set(userId, []);
   return conversations.get(userId)!;
 }
 
-function addToConversation(userId: string, role: string, content: string) {
-  const conv = getConversation(userId);
-  conv.push({ role, content, timestamp: Date.now() });
-  if (conv.length > MAX_HISTORY * 2) conv.splice(0, conv.length - MAX_HISTORY * 2);
-}
-
-function getAgent(): MoltbotAgent {
-  if (!agent) {
-    const llm = createProviderFromEnv();
-    agent = new MoltbotAgent(llm, {
-      verbose: process.env.MOLTBOT_VERBOSE !== 'false',
-    });
-    console.log(`[Moltbot] Agent ready (${llm.name}) | ${listTools().length} tools`);
-  }
-  return agent;
+function addHistory(userId: string, role: 'user' | 'assistant', content: string) {
+  const h = getHistory(userId);
+  h.push({ role, content });
+  if (h.length > 30) h.splice(0, h.length - 30);
 }
 
 export function createMoltbotServer(): express.Application {
+  // Initialize agent immediately - don't wait for first request
+  const llm = createProviderFromEnv();
+  agent = new MoltbotAgent(llm, { verbose: process.env.MOLTBOT_VERBOSE !== 'false' });
+  console.log(`[Moltbot] Agent ready (${llm.name}) | ${listTools().length} tools`);
+
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
@@ -55,333 +46,184 @@ export function createMoltbotServer(): express.Application {
     next();
   });
 
-  // R8: Rate limiting (simple in-memory)
-  const rateLimits = new Map<string, { count: number; reset: number }>();
-  app.use('/api', (req, res, next) => {
-    const ip = req.ip || 'unknown';
-    const now = Date.now();
-    const entry = rateLimits.get(ip);
-    if (entry && now < entry.reset) {
-      if (entry.count >= 30) {
-        return res.status(429).json({ error: 'Rate limit exceeded. Try again in a minute.' });
-      }
-      entry.count++;
-    } else {
-      rateLimits.set(ip, { count: 1, reset: now + 60_000 });
-    }
-    next();
-  });
-
-  // ── UI ──────────────────────────────────────────────────────────
+  // UI
   app.get('/', (_req, res) => {
-    const paths = [
-      path.join(__dirname, 'ui.html'),
-      path.join(process.cwd(), 'src', 'moltbot', 'ui.html'),
-    ];
-    for (const p of paths) {
+    for (const p of [path.join(__dirname, 'ui.html'), path.join(process.cwd(), 'src', 'moltbot', 'ui.html')]) {
       if (fs.existsSync(p)) return res.sendFile(p);
     }
-    res.send('<h1>Moltbot</h1><p>UI not found</p>');
+    res.send('<h1>Moltbot</h1>');
   });
 
-  // ── Health ──────────────────────────────────────────────────────
+  // Health
   app.get('/api/health', (_req, res) => {
-    const stats = getMemoryStats();
     res.json({
       status: 'ok',
-      agent: 'moltbot',
-      version: '1.0.0',
-      provider: agent?.providerName || 'not initialized',
+      provider: agent.providerName,
       tools: listTools().length,
-      ...stats,
-      uptime: Math.round(process.uptime()),
+      ...getMemoryStats(),
     });
   });
 
-  // ── Run a task ──────────────────────────────────────────────────
-  app.post('/api/task', async (req, res) => {
-    const { goal, context, userId } = req.body;
-    if (!goal || typeof goal !== 'string' || goal.trim().length < 2) {
-      return res.status(400).json({ error: 'Provide a "goal" (min 2 characters)' });
-    }
-
-    try {
-      const a = getAgent();
-      const task = await a.run(goal, { userId: userId || 'default', context });
-      res.json({
-        id: task.id,
-        status: task.status,
-        result: task.result,
-        error: task.error,
-        steps: task.plan.map(s => ({
-          action: s.action, tool: s.tool, status: s.status,
-          output: s.output ? JSON.stringify(s.output).slice(0, 300) : null,
-          error: s.error,
-        })),
-        tokensUsed: task.tokensUsed,
-        durationMs: (task.completedAt || Date.now()) - task.startedAt,
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // ── Chat (with conversation memory) ──────────────────────────────
-  app.post('/api/chat', async (req, res) => {
+  // ── THE ONE ENDPOINT ────────────────────────────────────────────
+  // Everything goes here. Agent decides what to do.
+  app.post('/api/message', async (req, res) => {
     const { message, userId: rawUserId } = req.body;
     const userId = rawUserId || 'default';
 
-    if (!message || typeof message !== 'string') {
-      return res.status(400).json({ error: 'Provide a "message"' });
+    if (!message || typeof message !== 'string' || message.trim().length < 1) {
+      return res.status(400).json({ error: 'Send a message' });
     }
 
+    const msg = message.trim();
+    addHistory(userId, 'user', msg);
+
     try {
-      const a = getAgent();
-      const isTask = looksLikeTask(message);
+      // Ask the LLM: should I run this as a task or just respond?
+      const history = getHistory(userId);
+      const historyContext = history.slice(-10, -1) // Exclude current message
+        .map(m => `${m.role}: ${m.content.slice(0, 150)}`)
+        .join('\n');
 
-      // Store user message in conversation history
-      addToConversation(userId, 'user', message);
+      const memories = searchMemories(userId, msg, { limit: 3 });
+      const memContext = memories.length > 0
+        ? `\nMemory: ${memories.map((m: any) => m.content).join('; ')}`
+        : '';
 
-      if (isTask) {
-        // Build context from recent conversation
-        const conv = getConversation(userId);
-        const recentContext = conv.slice(-6, -1)
-          .map(m => `${m.role}: ${m.content.slice(0, 200)}`)
-          .join('\n');
+      // First: quick classification - does this need tools or just chat?
+      const needsTools = shouldRunTask(msg);
 
-        const task = await a.run(message, {
-          userId,
-          context: recentContext ? `Recent conversation:\n${recentContext}` : '',
-        });
+      if (needsTools) {
+        // Run as autonomous task
+        const context = historyContext ? `Conversation so far:\n${historyContext}` : '';
+        const task = await agent.run(msg, { userId, context });
 
-        addToConversation(userId, 'assistant', task.result || task.error || 'Task completed');
+        const result = task.result || task.error || 'Task completed';
+        addHistory(userId, 'assistant', result);
 
         return res.json({
-          response: task.result || task.error || 'Task completed',
+          type: 'task',
+          response: result,
           taskId: task.id,
           status: task.status,
-          autonomous: true,
           steps: task.plan.map(s => ({
-            action: s.action, tool: s.tool, status: s.status,
-            output: s.output ? JSON.stringify(s.output).slice(0, 300) : null,
-            error: s.error,
+            action: s.action, tool: s.tool, status: s.status, error: s.error,
           })),
           tokensUsed: task.tokensUsed,
           durationMs: (task.completedAt || Date.now()) - task.startedAt,
         });
       }
 
-      // Chat with full conversation history
-      const conv = getConversation(userId);
-      const memories = searchMemories(userId, message, { limit: 3 });
-      const memContext = memories.length > 0
-        ? `\nYou remember: ${memories.map((m: any) => m.content).join('; ')}`
-        : '';
-
-      // Build messages with history (exclude the message we just added - it goes as the final user message)
-      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      // Chat response with history
+      const chatMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
         {
           role: 'system',
-          content: `You are Moltbot, an autonomous AI agent. You can search the web, browse pages, run JavaScript, execute shell commands, read/write files, call APIs, check weather, do math, read RSS feeds, manage git repos, and remember things.
+          content: `You are Moltbot, an autonomous AI agent with real tools: web search, browse URLs, run JavaScript, shell commands, read/write files, HTTP requests, weather, math, RSS feeds, git, and persistent memory.
 
-When the user asks you to DO something (search, create, monitor, analyze, etc.), let them know you're running it as a task and show results.
+You don't just talk - you ACT. If a user asks you to do something, do it. Run tasks. Get real data. Execute code. Don't just describe what you could do.
 
-Be concise, helpful, direct. No hedging.${memContext}`,
+If a request needs real-world action (searching, computing, fetching data, creating files), say "Let me handle that" and explain you need them to phrase it as a direct task.${memContext}`,
         },
       ];
 
-      // Add conversation history EXCLUDING the current message (which is already the last item)
-      const historyWithoutCurrent = conv.slice(-11, -1); // Last 10 before current
-      for (const msg of historyWithoutCurrent) {
-        if (msg.role === 'user' || msg.role === 'assistant') {
-          messages.push({ role: msg.role as 'user' | 'assistant', content: msg.content });
-        }
+      // Add history (excluding current - it's added below)
+      for (const m of history.slice(-10, -1)) {
+        chatMessages.push({ role: m.role, content: m.content });
+      }
+      chatMessages.push({ role: 'user', content: msg });
+
+      const response = await agent.chat(chatMessages);
+      addHistory(userId, 'assistant', response.content);
+
+      // Save to long-term memory
+      if (msg.length > 15) {
+        saveMemory(userId, 'fact', `${msg.slice(0, 80)} -> ${response.content.slice(0, 80)}`, {}, 0.5);
       }
 
-      // Add current message as the final user turn
-      messages.push({ role: 'user', content: message });
-
-      const response = await a.chat(messages);
-      addToConversation(userId, 'assistant', response.content);
-
-      // Save notable interactions to long-term memory
-      if (message.length > 20) {
-        saveMemory(userId, 'fact', `User asked: ${message.slice(0, 100)} | Response: ${response.content.slice(0, 100)}`, {}, 0.5);
-      }
-
-      res.json({
+      return res.json({
+        type: 'chat',
         response: response.content,
-        autonomous: false,
         tokensUsed: (response.inputTokens || 0) + (response.outputTokens || 0),
       });
+
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.error('[Moltbot] Error:', err.message);
+      return res.status(500).json({ error: err.message });
     }
   });
 
-  // ── Run task with streaming progress (SSE) ──────────────────────
-  app.post('/api/task/stream', async (req, res) => {
-    const { goal, context, userId } = req.body;
-    if (!goal || typeof goal !== 'string' || goal.trim().length < 2) {
-      return res.status(400).json({ error: 'Provide a "goal"' });
-    }
-
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders();
-
-    // Track which task ID we're listening for (set once task starts)
-    let myTaskId: string | null = null;
-    let listenerRemoved = false;
-
-    const listener = (task: any, step: any, event: string) => {
-      // Capture the task ID from the first event
-      if (!myTaskId) myTaskId = task.id;
-      // Only handle our task
-      if (task.id !== myTaskId) return;
-      try {
-        res.write(`data: ${JSON.stringify({ event, step: { action: step.action, tool: step.tool, status: step.status, index: step.index }, taskId: task.id })}\n\n`);
-      } catch {}
-    };
-    onStepUpdate(listener);
-
-    // Remove listener helper
-    function removeListener() {
-      if (!listenerRemoved) {
-        const idx = (stepListeners as any[]).indexOf(listener);
-        if (idx >= 0) (stepListeners as any[]).splice(idx, 1);
-        listenerRemoved = true;
-      }
-    }
-
-    // Clean up if client disconnects
-    res.on('close', removeListener);
-
-    try {
-      const a = getAgent();
-      addToConversation(userId || 'default', 'user', goal);
-
-      const task = await a.run(goal, { userId: userId || 'default', context });
-      addToConversation(userId || 'default', 'assistant', task.result || task.error || 'Task completed');
-
-      res.write(`data: ${JSON.stringify({
-        event: 'complete',
-        id: task.id, status: task.status, result: task.result, error: task.error,
-        steps: task.plan.map(s => ({ action: s.action, tool: s.tool, status: s.status, error: s.error })),
-        tokensUsed: task.tokensUsed,
-        durationMs: (task.completedAt || Date.now()) - task.startedAt,
-      })}\n\n`);
-    } catch (err: any) {
-      res.write(`data: ${JSON.stringify({ event: 'error', error: err.message })}\n\n`);
-    }
-
-    removeListener();
-    res.write('data: [DONE]\n\n');
-    res.end();
-  });
-
-  // ── Clear conversation ──────────────────────────────────────────
+  // Clear conversation
   app.post('/api/clear', (req, res) => {
-    const userId = req.body.userId || 'default';
-    conversations.delete(userId);
+    conversations.delete(req.body.userId || 'default');
     res.json({ ok: true });
   });
 
-  // ── Task details ────────────────────────────────────────────────
+  // Task details
   app.get('/api/task/:id', (req, res) => {
     const task = getTask(req.params.id);
-    if (!task) return res.status(404).json({ error: 'Task not found' });
+    if (!task) return res.status(404).json({ error: 'Not found' });
     res.json(task);
   });
 
-  // ── Task list ───────────────────────────────────────────────────
+  // Task list
   app.get('/api/tasks', (req, res) => {
-    const userId = (req.query.userId as string) || 'default';
-    const tasks = getUserTasks(userId, 50);
-    res.json({ tasks });
+    res.json({ tasks: getUserTasks((req.query.userId as string) || 'default', 50) });
   });
 
-  // ── Tools ───────────────────────────────────────────────────────
+  // Tools list
   app.get('/api/tools', (_req, res) => {
-    res.json({
-      tools: listTools().map(t => ({
-        name: t.name, description: t.description, parameters: t.parameters,
-      })),
-    });
+    res.json({ tools: listTools().map(t => ({ name: t.name, description: t.description, parameters: t.parameters })) });
   });
 
-  // ── Memory ──────────────────────────────────────────────────────
+  // Memory
   app.get('/api/memory', (req, res) => {
     const userId = (req.query.userId as string) || 'default';
-    const query = req.query.q as string;
-    if (query) {
-      return res.json({ results: searchMemories(userId, query, { limit: 20 }) });
-    }
-    res.json({
-      learnings: getRecentMemories(userId, 'learning', 20),
-      recentTasks: getRecentMemories(userId, 'task', 10),
-    });
-  });
-
-  // R9: Debug endpoint
-  app.get('/api/debug', (_req, res) => {
-    res.json({
-      env: {
-        hasAnthropic: !!process.env.ANTHROPIC_API_KEY,
-        hasOpenAI: !!process.env.OPENAI_API_KEY,
-        hasXAI: !!process.env.XAI_API_KEY,
-        hasOllama: !!process.env.OLLAMA_MODEL,
-        nodeVersion: process.version,
-        platform: process.platform,
-      },
-      agent: {
-        initialized: !!agent,
-        provider: agent?.providerName || 'none',
-        toolCount: listTools().length,
-      },
-      db: getMemoryStats(),
-    });
+    const q = req.query.q as string;
+    if (q) return res.json({ results: searchMemories(userId, q, { limit: 20 }) });
+    res.json({ learnings: getRecentMemories(userId, 'learning', 20), tasks: getRecentMemories(userId, 'task', 10) });
   });
 
   return app;
 }
 
-// R6: Better task detection
-function looksLikeTask(msg: string): boolean {
+/**
+ * Decide if a message needs autonomous task execution
+ */
+function shouldRunTask(msg: string): boolean {
   const l = msg.toLowerCase().trim();
 
-  // Short messages are usually chat
-  if (l.length < 10 && !l.match(/^(search|find|get|check|run|read)/)) return false;
+  // Direct commands - always run as task
+  if (/^(search|find|look up|google|get me|fetch)\b/i.test(l)) return true;
+  if (/^(create|build|write|generate|make|code)\b/i.test(l)) return true;
+  if (/^(run|execute|deploy|install|compile)\b/i.test(l)) return true;
+  if (/^(analyze|summarize|review|compare|evaluate)\b/i.test(l)) return true;
+  if (/^(download|scrape|crawl|extract|read)\b.*\b(from|url|http|file|feed)/i.test(l)) return true;
+  if (/^(check|monitor|watch|track)\b/i.test(l)) return true;
+  if (/^(calculate|compute|solve|convert)\b/i.test(l)) return true;
+  if (/^(schedule|remind|automate)\b/i.test(l)) return true;
+  if (/^(list|show)\b.*\b(files|dir|folder)/i.test(l)) return true;
+  if (/^(git|npm|pip)\b/i.test(l)) return true;
 
-  const taskPatterns = [
-    /^(search|find|look up|google)\b/,
-    /^(create|build|write|generate|make)\b/,
-    /^(monitor|watch|track|check)\b/,
-    /^(post|send|publish|tweet)\b/,
-    /^(download|fetch|get|grab)\b/,
-    /^(run|execute|deploy|install)\b/,
-    /^(analyze|summarize|review|compare)\b/,
-    /^(scrape|crawl|extract)\b/,
-    /^(schedule|remind|automate)\b/,
-    /^(read|open|browse)\b.*\b(file|url|http|www|rss|feed)/,
-    /^(calculate|compute|solve)\b/,
-    /^(list|show)\b.*\b(files|directory)/,
-    /\b(weather|forecast)\b.*\b(in|for|at)\b/,
-    /\b(news|headlines|latest)\b.*\b(about|on|for)\b/,
-  ];
+  // Topic requests that need real data
+  if (/\b(weather|forecast|temperature)\b.*\b(in|for|at)\b/i.test(l)) return true;
+  if (/\b(news|headlines|latest|current)\b.*\b(about|on|for|in)\b/i.test(l)) return true;
+  if (/\b(price|stock|crypto|bitcoin)\b/i.test(l)) return true;
+  if (/\bwhat time\b.*\b(in|is it)\b/i.test(l)) return true;
 
-  return taskPatterns.some(p => p.test(l));
+  // "Do something" patterns
+  if (/^(do|please|can you|could you|i need you to|i want you to)\b/i.test(l)) return true;
+
+  // If it mentions a URL, probably needs browsing
+  if (/https?:\/\/\S+/i.test(l)) return true;
+
+  return false;
 }
 
-// ── Standalone ──────────────────────────────────────────────────────
+// Standalone
 if (require.main === module || process.argv.includes('--moltbot')) {
   const app = createMoltbotServer();
   const port = parseInt(process.env.PORT || '5000', 10);
-
   app.listen(port, '0.0.0.0', () => {
     console.log(`\n  Moltbot running on http://localhost:${port}`);
-    console.log(`  ${listTools().length} tools loaded\n`);
+    console.log(`  ${listTools().length} tools | ${agent.providerName}\n`);
   });
 }
