@@ -234,7 +234,7 @@ export async function executeTask(
 }
 
 /**
- * INSTAGRAM TASKS - Post photos, stories, etc.
+ * INSTAGRAM TASKS - REAL Graph API Integration
  */
 async function executeInstagramTask(
   action: string,
@@ -242,49 +242,52 @@ async function executeInstagramTask(
   credentials: any,
   userName: string
 ): Promise<TaskExecutionResult> {
-  console.log(`[Instagram] 📸 Executing: ${action}`);
+  console.log(`[Instagram] 📸 Executing REAL API: ${action}`);
   
-  switch (action) {
-    case 'post_photo':
-      // Simulate Instagram posting (would use Instagram Graph API in production)
-      const { imageUrl, caption } = parameters;
-      
-      console.log(`[Instagram] 📸 Posting photo: ${imageUrl}`);
-      console.log(`[Instagram] 📝 Caption: ${caption}`);
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      return {
-        success: true,
-        message: `Photo posted to Instagram`,
-        humanMessage: `Done, ${userName}! Posted that sunset pic to Instagram 🌅✨`,
-        data: {
-          postId: `ig_post_${Date.now()}`,
-          url: `https://instagram.com/p/${Date.now()}`,
-          likes: 0,
-          comments: 0,
-        },
-      };
-      
-    case 'post_story':
-      console.log(`[Instagram] 📖 Posting story`);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      return {
-        success: true,
-        message: `Story posted`,
-        humanMessage: `Story's live, ${userName}! 24 hours and counting! ⏰`,
-        data: { storyId: `story_${Date.now()}` },
-      };
-      
-    default:
-      throw new Error(`Unknown Instagram action: ${action}`);
+  try {
+    // Import REAL Instagram API module
+    const instagramAPI = await import('./integrations/instagram');
+    
+    switch (action) {
+      case 'post_photo':
+        const { imageUrl, caption } = parameters;
+        
+        // Use REAL Instagram Graph API
+        const result = await instagramAPI.postPhoto(credentials.userId || 'default_user', imageUrl, caption, userName);
+        
+        return {
+          success: result.success,
+          message: result.message || 'Photo posted',
+          humanMessage: result.humanMessage || `Done, ${userName}! Posted to Instagram 🌅✨`,
+          data: result.data,
+        };
+        
+      case 'get_media':
+        const mediaResult = await instagramAPI.getUserMedia(credentials.userId || 'default_user', parameters.limit || 10);
+        
+        return {
+          success: mediaResult.success,
+          message: mediaResult.message || 'Media retrieved',
+          humanMessage: `Got your Instagram posts, ${userName}! 📸`,
+          data: mediaResult.data,
+        };
+        
+      default:
+        throw new Error(`Unknown Instagram action: ${action}`);
+    }
+  } catch (error: any) {
+    console.error(`[Instagram] ❌ API Error:`, error.message);
+    return {
+      success: false,
+      message: error.message,
+      humanMessage: `${userName}, Instagram API error: ${error.message}`,
+      error: error.message,
+    };
   }
 }
 
 /**
- * EMAIL TASKS - Scan, send, filter
+ * EMAIL TASKS - REAL Gmail API Integration
  */
 async function executeEmailTask(
   action: string,
@@ -292,50 +295,70 @@ async function executeEmailTask(
   credentials: any,
   userName: string
 ): Promise<TaskExecutionResult> {
-  console.log(`[Email] 📧 Executing: ${action}`);
+  console.log(`[Email] 📧 Executing REAL Gmail API: ${action}`);
   
-  switch (action) {
-    case 'scan_inbox':
-      const { filter, limit = 10 } = parameters;
+  try {
+    // Import REAL Gmail API module
+    const gmailAPI = await import('./integrations/gmail');
+    
+    switch (action) {
+      case 'scan_inbox':
+      case 'list_messages':
+        const { filter, limit = 10 } = parameters;
+        
+        // Use REAL Gmail API
+        const listResult = await gmailAPI.listMessages(credentials.userId || 'default_user', filter || '', limit);
+        
+        if (!listResult.success) {
+          return {
+            success: false,
+            message: listResult.message || 'Scan failed',
+            humanMessage: listResult.humanMessage,
+            error: listResult.message,
+          };
+        }
+        
+        const messages = listResult.messages || [];
+        const summary = messages.slice(0, 5).map((m, i) => 
+          `${i + 1}. ${m.from?.split('<')[0]}: ${m.subject} ${m.unread ? '(Unread)' : ''}`
+        ).join('\n');
+        
+        return {
+          success: true,
+          message: `Found ${messages.length} messages`,
+          humanMessage: `${userName}, scanned your inbox! Found ${messages.length} messages 📬\n\n${summary}`,
+          data: { messages, total: messages.length },
+        };
       
-      console.log(`[Email] 📥 Scanning inbox with filter: ${filter}`);
+      case 'send_email':
+        const { to, subject, body } = parameters;
+        
+        // Use REAL Gmail API
+        const sendResult = await gmailAPI.sendEmail(credentials.userId || 'default_user', to, subject, body, userName);
+        
+        return {
+          success: sendResult.success,
+          message: sendResult.message || 'Email sent',
+          humanMessage: sendResult.humanMessage,
+          data: { messageId: sendResult.messageId },
+        };
       
-      // Simulate IMAP scan
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      const mockEmails = [
-        { from: 'team@company.com', subject: 'Project Update', unread: true },
-        { from: 'news@newsletter.com', subject: 'Daily Brief', unread: false },
-      ];
-      
-      return {
-        success: true,
-        message: `Scanned ${mockEmails.length} emails`,
-        humanMessage: `${userName}, scanned your inbox! Found ${mockEmails.length} messages. Here's what's up! 📬`,
-        data: { emails: mockEmails, total: mockEmails.length },
-      };
-      
-    case 'send_email':
-      const { to, subject, body } = parameters;
-      
-      console.log(`[Email] 📤 Sending to: ${to}`);
-      
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      return {
-        success: true,
-        message: `Email sent to ${to}`,
-        humanMessage: `Sent! ${userName}, your email to ${to} is on its way 🚀`,
-        data: { messageId: `msg_${Date.now()}` },
-      };
-      
-    default:
-      throw new Error(`Unknown email action: ${action}`);
+      default:
+        throw new Error(`Unknown email action: ${action}`);
+    }
+  } catch (error: any) {
+    console.error(`[Email] ❌ Gmail API Error:`, error.message);
+    return {
+      success: false,
+      message: error.message,
+      humanMessage: `${userName}, Gmail API error: ${error.message}`,
+      error: error.message,
+    };
   }
 }
 
 /**
- * TWITTER TASKS
+ * TWITTER TASKS - REAL Twitter API v2 Integration
  */
 async function executeTwitterTask(
   action: string,
@@ -343,25 +366,47 @@ async function executeTwitterTask(
   credentials: any,
   userName: string
 ): Promise<TaskExecutionResult> {
-  console.log(`[Twitter] 🐦 Executing: ${action}`);
+  console.log(`[Twitter] 🐦 Executing REAL Twitter API v2: ${action}`);
   
-  switch (action) {
-    case 'post_tweet':
-      const { text } = parameters;
+  try {
+    // Import REAL Twitter API module
+    const twitterAPI = await import('./integrations/twitter');
+    
+    switch (action) {
+      case 'post_tweet':
+        const { text } = parameters;
+        
+        // Use REAL Twitter API v2
+        const result = await twitterAPI.postTweet(credentials.userId || 'default_user', text, userName);
+        
+        return {
+          success: result.success,
+          message: result.message || 'Tweet posted',
+          humanMessage: result.humanMessage || `Tweet's live, ${userName}! 🎉`,
+          data: { tweetId: result.tweetId, url: result.url },
+        };
       
-      console.log(`[Twitter] 🐦 Posting tweet: ${text}`);
+      case 'get_timeline':
+        const timelineResult = await twitterAPI.getTimeline(credentials.userId || 'default_user', parameters.limit || 10);
+        
+        return {
+          success: timelineResult.success,
+          message: timelineResult.message || 'Timeline retrieved',
+          humanMessage: `Got your Twitter feed, ${userName}! 🐦`,
+          data: timelineResult.tweets,
+        };
       
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      return {
-        success: true,
-        message: `Tweet posted`,
-        humanMessage: `Tweet's out there, ${userName}! Let's see those likes roll in! 🎉`,
-        data: { tweetId: `tweet_${Date.now()}`, url: `https://twitter.com/status/${Date.now()}` },
-      };
-      
-    default:
-      throw new Error(`Unknown Twitter action: ${action}`);
+      default:
+        throw new Error(`Unknown Twitter action: ${action}`);
+    }
+  } catch (error: any) {
+    console.error(`[Twitter] ❌ API Error:`, error.message);
+    return {
+      success: false,
+      message: error.message,
+      humanMessage: `${userName}, Twitter API error: ${error.message}`,
+      error: error.message,
+    };
   }
 }
 

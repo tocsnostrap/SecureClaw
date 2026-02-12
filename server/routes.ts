@@ -405,6 +405,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // REAL OAUTH FLOWS
+
+  // Start OAuth flow
+  app.get("/api/oauth/start/:app", async (req: Request, res: Response) => {
+    try {
+      const app = req.params.app as 'instagram' | 'gmail' | 'twitter';
+      const userId = (req.query.userId as string) || 'default_user';
+      const redirectUri = (req.query.redirectUri as string) || `${req.protocol}://${req.get('host')}/api/oauth/callback`;
+      
+      const { startOAuthFlow } = await import("../src/integrations/oauth");
+      
+      const { authUrl, state } = startOAuthFlow(app, userId, redirectUri);
+      
+      res.json({
+        authUrl,
+        state,
+        app,
+        message: `OAuth flow started for ${app}. Redirect user to authUrl.`,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // OAuth callback
+  app.get("/api/oauth/callback", async (req: Request, res: Response) => {
+    try {
+      const code = req.query.code as string;
+      const state = req.query.state as string;
+      
+      if (!code || !state) {
+        return res.status(400).json({ error: 'Missing code or state' });
+      }
+      
+      const { completeOAuthFlow } = await import("../src/integrations/oauth");
+      
+      const result = await completeOAuthFlow(code, state);
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      
+      // Success - redirect to success page or app
+      res.send(`
+        <html>
+          <head><title>OAuth Success</title></head>
+          <body style="font-family: system-ui; text-align: center; padding: 40px; background: #0D1117; color: #fff;">
+            <h1 style="color: #00D9A6;">✅ ${result.app} Connected!</h1>
+            <p>Successfully linked your ${result.app} account.</p>
+            <p>You can close this window and return to SecureClaw.</p>
+            <script>
+              setTimeout(() => window.close(), 3000);
+            </script>
+          </body>
+        </html>
+      `);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   const httpServer = createServer(app);
 
   const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
