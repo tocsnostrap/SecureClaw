@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { WebSocketServer, WebSocket } from "ws";
+import passport from "passport";
 import { streamAgentResponse, routeToAgent, listAgents } from "../src/agents/agents";
 import { getProactiveTasks, createProactiveTask, toggleProactiveTask, deleteProactiveTask, executeTaskNow, DEFAULT_TASK_TEMPLATES, getAuditLog, getAuditStats } from "../src/agents/proactive";
 
