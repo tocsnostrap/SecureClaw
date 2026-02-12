@@ -179,10 +179,13 @@ Available tools: web_search, browser_scrape, link_app, execute_app_task, monitor
       "execute_app_task", // Employee-like task execution
       "monitor_system", // Clawdbot-style monitoring
       "get_help", // Wiki/tutorial search
-      "self_evolve", // NEW: Write and deploy new tools autonomously
-      "deep_reason", // NEW: Chain-of-thought advanced reasoning
-      "generate_image", // NEW: Multimodal image generation
-      "predict_next", // NEW: Predictive AI
+      "self_evolve", // Write and deploy new tools autonomously
+      "deep_reason", // Chain-of-thought advanced reasoning
+      "generate_image", // Multimodal image generation
+      "predict_next", // Predictive AI
+      "agent_swarm", // EXTREME: Multi-agent collaboration
+      "execute_code", // EXTREME: Live code execution
+      "optimize_performance", // EXTREME: Self-optimization
       "summarize",
       "schedule_task",
       "send_notification",

@@ -722,6 +722,106 @@ export const agentTools = {
     },
   }),
 
+  agent_swarm: tool({
+    description: "MULTI-AGENT COLLABORATION - Deploy swarm of AI agents (orchestrator, researcher, coder, tester) to solve complex problems together. True collaborative intelligence.",
+    parameters: z.object({
+      goal: z.string().describe("Complex goal requiring multiple agents"),
+      agents: z.array(z.string()).optional().describe("Agent types needed"),
+    }),
+    execute: async ({ goal, agents }) => {
+      console.log(`[AGI Tool] 🤖🤖🤖 DEPLOYING AGENT SWARM: ${goal}`);
+      
+      try {
+        const { startAgentSwarm } = await import("../core/agent_collaboration");
+        
+        const session = await startAgentSwarm(goal, agents);
+        
+        const agentList = session.agents.map(a => `${a.role} (${a.specialty})`).join(', ');
+        
+        return {
+          success: true,
+          sessionId: session.sessionId,
+          agents: session.agents.length,
+          progress: session.progress,
+          message: `Swarm deployed with ${session.agents.length} agents`,
+          humanMessage: `Deployed ${session.agents.length} AI agents to tackle this! 🤖🤖\n\nAgents: ${agentList}\n\nThey're working together now...`,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    },
+  }),
+
+  execute_code: tool({
+    description: "LIVE CODE EXECUTION - Run JavaScript/Python code immediately in secure sandbox. Not just generation - actual execution with results.",
+    parameters: z.object({
+      code: z.string().describe("Code to execute"),
+      language: z.enum(['javascript', 'python']).describe("Programming language"),
+      timeout: z.number().optional().default(5000).describe("Execution timeout in ms"),
+    }),
+    execute: async ({ code, language, timeout }) => {
+      console.log(`[AGI Tool] ⚡ EXECUTING ${language.toUpperCase()} CODE...`);
+      
+      try {
+        const { executeJavaScript, executePython } = await import("../core/code_execution");
+        
+        const result = language === 'javascript' ?
+          await executeJavaScript(code, timeout) :
+          await executePython(code);
+        
+        return {
+          success: result.success,
+          output: result.output,
+          error: result.error,
+          executionTime: result.executionTime,
+          language,
+          message: result.success ? `Code executed in ${result.executionTime}ms` : `Execution failed: ${result.error}`,
+          humanMessage: result.success ?
+            `Ran that code! ⚡\n\nOutput: ${JSON.stringify(result.output)}\n\nTime: ${result.executionTime}ms` :
+            `Code crashed: ${result.error}. Want me to fix it?`,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          language,
+        };
+      }
+    },
+  }),
+
+  optimize_performance: tool({
+    description: "SELF-OPTIMIZATION - AI analyzes its own performance and applies improvements autonomously. Gets faster and smarter over time.",
+    parameters: z.object({
+      targetArea: z.string().optional().describe("Specific area to optimize (e.g., 'token usage', 'response time')"),
+    }),
+    execute: async ({ targetArea }) => {
+      console.log(`[AGI Tool] 📈 SELF-OPTIMIZING...`);
+      
+      try {
+        const { runAutoOptimization } = await import("../core/performance_optimizer");
+        
+        const result = await runAutoOptimization();
+        
+        return {
+          success: true,
+          optimizations: result.optimizations,
+          improvements: result.improvements,
+          message: `Applied ${result.improvements.length} optimizations`,
+          humanMessage: `Just optimized myself! 📈\n\nImprovements applied:\n${result.improvements.map(i => `• ${i}`).join('\n')}\n\nI'm now faster and more efficient!`,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    },
+  }),
+
   generate_code: tool({
     description: "Generate code for creative implementations, simulations, games, demos, and technical projects. Use this for ANY request involving building, creating, or implementing something.",
     parameters: z.object({
