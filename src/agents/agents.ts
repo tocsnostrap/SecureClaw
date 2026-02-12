@@ -147,12 +147,25 @@ Examples:
 - User: "Post sunset pic to Instagram" → Check permission, use execute_app_task
 - User: "Scan my emails" → Check email permission, execute task
 
-Available tools: web_search, browser_scrape, link_app, execute_app_task, summarize, schedule_task, send_notification, get_weather, get_time, read_rss, calculate, translate, set_reminder, generate_code.`,
+MONITORING & HELP (Clawdbot-Style):
+- monitor_system: Check server health, uptime, connection status
+- get_help: Search wiki (tutorials, FAQs, commands) or ask Grok
+- Proactive alerts when issues detected
+- Self-diagnosis and fixes
+
+Examples:
+- User: "Monitor server status" → Use monitor_system tool
+- User: "Help with Instagram" → Use get_help to search wiki
+- User: "Is everything working?" → Check all systems proactively
+
+Available tools: web_search, browser_scrape, link_app, execute_app_task, monitor_system, get_help, summarize, schedule_task, send_notification, get_weather, get_time, read_rss, calculate, translate, set_reminder, generate_code.`,
     tools: [
       "web_search", // REAL browser automation
-      "browser_scrape", // Scrape any website
-      "link_app", // NEW: Link Instagram/Email/Twitter
-      "execute_app_task", // NEW: Execute employee-like tasks
+      "browser_scrape", // Scrape any website  
+      "link_app", // Link Instagram/Email/Twitter
+      "execute_app_task", // Employee-like task execution
+      "monitor_system", // NEW: Clawdbot-style status monitoring
+      "get_help", // NEW: Wiki/tutorial search
       "summarize",
       "schedule_task",
       "send_notification",

@@ -425,6 +425,117 @@ export const agentTools = {
     },
   }),
 
+  monitor_system: tool({
+    description: "SYSTEM STATUS MONITORING - Clawdbot-style health checks. Check gateway, Grok, browser, permissions status with uptime tracking.",
+    parameters: z.object({
+      service: z.enum(['all', 'gateway', 'grok', 'browser', 'permissions']).optional().default('all').describe("Service to check"),
+      userName: z.string().optional().default('friend').describe("User's name"),
+    }),
+    execute: async ({ service, userName }) => {
+      logAction({
+        agent: "orchestrator",
+        action: "monitor_system",
+        tool: "monitor_system",
+        input: service,
+        output: null,
+        status: "executed",
+        requiresConsent: false,
+        userId: null,
+      });
+      
+      console.log(`[AGI Tool] 🏥 Monitoring: ${service}`);
+      
+      try {
+        const { runAllHealthChecks, runHealthCheck, getFormattedUptime } = await import("../monitoring");
+        
+        if (service === 'all') {
+          const status = await runAllHealthChecks();
+          
+          const statusEmoji = status.overall === 'operational' ? '✅' : 
+                             status.overall === 'degraded' ? '⚠️' : '❌';
+          
+          return {
+            overall: status.overall,
+            uptime: getFormattedUptime(),
+            checks: status.checks,
+            alerts: status.alerts,
+            message: `${statusEmoji} System ${status.overall}. Uptime: ${getFormattedUptime()}`,
+            humanMessage: status.overall === 'operational' 
+              ? `All systems green, ${userName}! Everything's running smooth ✅`
+              : `${userName}, found some issues. Running diagnostics... 🔧`,
+            timestamp: new Date().toISOString(),
+          };
+        } else {
+          const check = await runHealthCheck(service);
+          
+          return {
+            service,
+            status: check.status,
+            latency: check.latency,
+            message: check.message,
+            humanMessage: check.status === 'healthy'
+              ? `${userName}, ${service} is humming along nicely! ✅`
+              : `Hmm, ${userName}, ${service} looking ${check.status}: ${check.message}`,
+            timestamp: new Date().toISOString(),
+          };
+        }
+      } catch (error: any) {
+        console.error(`[AGI Tool] ❌ Monitor error:`, error.message);
+        return {
+          error: error.message,
+          message: `Monitoring failed: ${error.message}`,
+          humanMessage: `${userName}, couldn't check status: ${error.message}`,
+          timestamp: new Date().toISOString(),
+        };
+      }
+    },
+  }),
+
+  get_help: tool({
+    description: "HELP/WIKI SEARCH - OpenClaw百科 style. Search tutorials, FAQs, commands. Dynamic help via Grok if not in wiki.",
+    parameters: z.object({
+      query: z.string().describe("What to search for (e.g., 'instagram', 'browser automation', 'setup')"),
+      userName: z.string().optional().default('friend').describe("User's name"),
+    }),
+    execute: async ({ query, userName }) => {
+      logAction({
+        agent: "orchestrator",
+        action: "get_help",
+        tool: "get_help",
+        input: query,
+        output: null,
+        status: "executed",
+        requiresConsent: false,
+        userId: null,
+      });
+      
+      console.log(`[AGI Tool] 📚 Help request: ${query}`);
+      
+      try {
+        const { getHelp } = await import("../help_wiki");
+        
+        const helpContent = await getHelp(query, userName);
+        
+        return {
+          query,
+          help: helpContent,
+          message: `Help for: ${query}`,
+          humanMessage: `Here's what I found, ${userName}! 📖`,
+          timestamp: new Date().toISOString(),
+        };
+      } catch (error: any) {
+        console.error(`[AGI Tool] ❌ Help error:`, error.message);
+        return {
+          query,
+          error: error.message,
+          message: `Help lookup failed: ${error.message}`,
+          humanMessage: `Oops, ${userName}, wiki hiccup: ${error.message}`,
+          timestamp: new Date().toISOString(),
+        };
+      }
+    },
+  }),
+
   execute_app_task: tool({
     description: "EXECUTE APP TASK - Employee-like task execution. Post to Instagram, send emails, tweet, etc. Requires app to be linked first.",
     parameters: z.object({
