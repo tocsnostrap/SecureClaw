@@ -108,6 +108,7 @@
     <div class="meta" id="status">connecting...</div>
   </div>
   <div class="header-actions">
+    <button onclick="clearChat()">Clear</button>
     <button onclick="showHistory()">History</button>
     <button onclick="showTools()">Tools</button>
   </div>
@@ -175,39 +176,139 @@ async function send(){
   addUser(text);
   input.value='';
   send_btn.disabled=true;
-  const thinking=addThinking();
   msgCount++;
 
-  try{
-    let endpoint, body;
-    if(mode==='task'){
-      endpoint='/api/task'; body={goal:text};
-    } else if(mode==='chat'){
-      endpoint='/api/chat'; body={message:text};
-    } else {
-      // Auto: let server decide
-      endpoint='/api/chat'; body={message:text};
+  if(mode==='task'){
+    // Stream task execution with real-time step updates
+    await streamTask(text);
+  } else {
+    const thinking=addThinking();
+    try{
+      const endpoint = '/api/chat';
+      const body = {message:text};
+      const res = await fetch(endpoint,{
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
+      });
+      const data = await res.json();
+      thinking.remove();
+      if(data.error && !data.result && !data.response){
+        addError(data.error);
+      } else if(data.steps || data.autonomous){
+        addTaskResult(data);
+      } else {
+        addBot(data.response || data.result || 'No response');
+      }
+    }catch(err){
+      thinking.remove();
+      addError('Connection error: '+err.message);
     }
-
-    const res = await fetch(endpoint,{
-      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
-    });
-    const data = await res.json();
-    thinking.remove();
-
-    if(data.error && !data.result && !data.response){
-      addError(data.error);
-    } else if(data.steps || data.autonomous){
-      addTaskResult(data);
-    } else {
-      addBot(data.response || data.result || 'No response');
-    }
-  }catch(err){
-    thinking.remove();
-    addError('Connection error: '+err.message);
   }
   send_btn.disabled=false;
   input.focus();
+}
+
+async function streamTask(goal){
+  // Create a live-updating message for the task
+  const msgEl = document.createElement('div'); msgEl.className='msg bot';
+  const bubble = document.createElement('div'); bubble.className='bubble';
+  bubble.innerHTML='<span class="badge thinking">Planning</span><div class="thinking-dots"><span></span><span></span><span></span></div><div class="steps" id="live-steps"></div>';
+  msgEl.appendChild(bubble);
+  chat.appendChild(msgEl); scroll();
+
+  const liveSteps = bubble.querySelector('#live-steps');
+  const stepsMap = new Map();
+
+  try{
+    const res = await fetch('/api/task/stream',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({goal})
+    });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while(true){
+      const {done,value} = await reader.read();
+      if(done) break;
+      buffer += decoder.decode(value, {stream:true});
+
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for(const line of lines){
+        if(!line.startsWith('data: ')) continue;
+        const raw = line.slice(6).trim();
+        if(raw === '[DONE]') continue;
+
+        try{
+          const ev = JSON.parse(raw);
+
+          if(ev.event === 'start' || ev.event === 'retry'){
+            const badge = bubble.querySelector('.badge');
+            if(badge){badge.className='badge thinking'; badge.textContent='Executing';}
+            if(ev.step && !stepsMap.has(ev.step.index)){
+              const stepEl = document.createElement('div');
+              stepEl.className='step pending';
+              stepEl.innerHTML=`<span class="step-icon">&#9679;</span><span class="step-text">${esc(ev.step.action)} ${ev.step.tool?'<span class="step-tool">'+ev.step.tool+'</span>':''}</span>`;
+              liveSteps.appendChild(stepEl);
+              stepsMap.set(ev.step.index, stepEl);
+            }
+          }
+
+          if(ev.event === 'success' && ev.step){
+            const el = stepsMap.get(ev.step.index);
+            if(el){el.className='step success'; el.querySelector('.step-icon').innerHTML='&#10003;';}
+          }
+
+          if(ev.event === 'failed' && ev.step){
+            const el = stepsMap.get(ev.step.index);
+            if(el){el.className='step failed'; el.querySelector('.step-icon').innerHTML='&#10007;';}
+          }
+
+          if(ev.event === 'complete'){
+            // Remove thinking dots
+            const dots = bubble.querySelector('.thinking-dots');
+            if(dots) dots.remove();
+            // Update badge
+            const badge = bubble.querySelector('.badge');
+            if(badge){
+              badge.className='badge '+(ev.status||'completed');
+              badge.textContent=ev.status||'completed';
+            }
+            // Add result text
+            const resultDiv = document.createElement('div');
+            resultDiv.style.marginTop='8px';
+            resultDiv.innerHTML=formatText(ev.result||ev.error||'Done');
+            bubble.insertBefore(resultDiv, liveSteps);
+            // Add meta
+            const parts=[];
+            if(ev.durationMs) parts.push((ev.durationMs/1000).toFixed(1)+'s');
+            if(ev.tokensUsed) parts.push(ev.tokensUsed+' tokens');
+            if(ev.steps) parts.push(ev.steps.filter(s=>s.status==='success').length+'/'+ev.steps.length+' ok');
+            if(parts.length){
+              const meta=document.createElement('div');meta.className='task-meta';meta.innerHTML=parts.join(' &middot; ');
+              bubble.appendChild(meta);
+            }
+          }
+
+          if(ev.event === 'error'){
+            const badge = bubble.querySelector('.badge');
+            if(badge){badge.className='badge failed'; badge.textContent='Error';}
+            const dots = bubble.querySelector('.thinking-dots');
+            if(dots) dots.remove();
+            const errDiv = document.createElement('div');
+            errDiv.innerHTML=esc(ev.error);
+            bubble.appendChild(errDiv);
+          }
+
+          scroll();
+        }catch{}
+      }
+    }
+  }catch(err){
+    bubble.innerHTML=`<span class="badge failed">Error</span><br>${esc(err.message)}`;
+  }
 }
 
 function addUser(text){
@@ -309,6 +410,12 @@ async function showTools(){
 }
 
 function closePanel(id){ document.getElementById(id).classList.remove('open'); }
+
+function clearChat(){
+  chat.innerHTML=`<div class="empty" id="empty"><h2>Moltbot</h2><p>Autonomous AI agent. Give me a task and I'll plan, execute, and deliver.</p><div class="suggestions"><button onclick="prefill('Get the weather in Tokyo')">Weather in Tokyo</button><button onclick="prefill('Search for latest AI news')">AI news</button><button onclick="prefill('What time is it in New York?')">Time in NYC</button><button onclick="prefill('Calculate the square root of 144')">Math</button><button onclick="prefill('Read the Hacker News RSS feed')">Hacker News</button></div></div>`;
+  fetch('/api/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+  msgCount=0;
+}
 </script>
 </body>
 </html>

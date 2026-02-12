@@ -100,7 +100,39 @@ export class MoltbotAgent {
         emitStep(task, step, 'start');
 
         if (step.tool) {
-          // R1: Validate tool exists before executing
+          // Handle "think" tool specially - use LLM directly
+          if (step.tool === 'think') {
+            const resolvedArgs = this.resolveArgs(step.args, task);
+            const prompt = resolvedArgs.prompt || step.action;
+            const systemMsg = resolvedArgs.system || 'You are Moltbot thinking through a problem step by step.';
+
+            this.log(`   Thinking: ${prompt.slice(0, 100)}`);
+            try {
+              const thought = await this.chat([
+                { role: 'system', content: systemMsg },
+                { role: 'user', content: prompt },
+              ]);
+              task.tokensUsed += (thought.inputTokens || 0) + (thought.outputTokens || 0);
+              step.status = 'success';
+              step.output = { thought: thought.content };
+              step.completedAt = Date.now();
+              this.observe(task, step.index, 'result', `Thought: ${thought.content.slice(0, 300)}`);
+              this.log(`   Thought: ${thought.content.slice(0, 150)}`);
+              emitStep(task, step, 'success');
+              task.currentStep++;
+              saveTask(task);
+              continue;
+            } catch (err: any) {
+              step.error = err.message;
+              step.status = 'failed';
+              step.completedAt = Date.now();
+              this.observe(task, step.index, 'error', `Think failed: ${err.message}`);
+              task.currentStep++;
+              continue;
+            }
+          }
+
+          // Validate tool exists before executing
           const toolExists = listTools().some(t => t.name === step.tool);
           if (!toolExists) {
             step.error = `Unknown tool "${step.tool}"`;
@@ -112,7 +144,7 @@ export class MoltbotAgent {
             continue;
           }
 
-          // R6: Inject previous step results into args
+          // Inject previous step results into args
           const resolvedArgs = this.resolveArgs(step.args, task);
 
           this.log(`   Tool: ${step.tool}(${JSON.stringify(resolvedArgs).slice(0, 100)})`);
