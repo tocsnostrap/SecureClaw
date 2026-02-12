@@ -1,18 +1,20 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { logAction, isToolAllowed } from "./audit-log";
+import { webSearch as browserWebSearch, scrapeUrl as browserScrapeUrl } from "../skills/browser_skill";
 
 export const agentTools = {
   web_search: tool({
-    description: "Search the web for current information on a topic",
+    description: "REAL BROWSER-BASED WEB SEARCH - Uses Puppeteer to search Google and extract actual results. AGI-tier execution power.",
     parameters: z.object({
       query: z.string().describe("The search query"),
       maxResults: z.number().optional().default(5).describe("Maximum number of results"),
+      userName: z.string().optional().default("friend").describe("User's name for personalization"),
     }),
-    execute: async ({ query, maxResults }) => {
+    execute: async ({ query, maxResults, userName }) => {
       logAction({
         agent: "research",
-        action: "web_search",
+        action: "web_search_browser",
         tool: "web_search",
         input: query,
         output: null,
@@ -20,17 +22,49 @@ export const agentTools = {
         requiresConsent: false,
         userId: null,
       });
-      return {
-        results: [
-          {
-            title: `Search results for: ${query}`,
-            snippet: `Top ${maxResults} results would appear here. In production, this connects to a search API.`,
-            url: `https://search.example.com/?q=${encodeURIComponent(query)}`,
-          },
-        ],
-        query,
-        timestamp: new Date().toISOString(),
-      };
+      
+      console.log(`[AGI Tool] 🌐 Real browser search for: ${query}`);
+      
+      try {
+        // Use REAL browser automation
+        const result = await browserWebSearch(query, { userName });
+        
+        if (result.success && result.data) {
+          return {
+            results: result.data.slice(0, maxResults),
+            query,
+            timestamp: new Date().toISOString(),
+            message: result.humanMessage || `Search complete`,
+            realBrowser: true,
+          };
+        } else {
+          // Fallback to simulated results if browser fails
+          console.warn(`[AGI Tool] ⚠️  Browser search failed, using fallback:`, result.message);
+          return {
+            results: [
+              {
+                title: `Search results for: ${query}`,
+                snippet: `Browser unavailable: ${result.message}. Using cached/simulated results.`,
+                url: `https://google.com/search?q=${encodeURIComponent(query)}`,
+              },
+            ],
+            query,
+            timestamp: new Date().toISOString(),
+            message: result.humanMessage || result.message,
+            realBrowser: false,
+            fallback: true,
+          };
+        }
+      } catch (error: any) {
+        console.error(`[AGI Tool] ❌ Browser search error:`, error.message);
+        return {
+          results: [],
+          query,
+          timestamp: new Date().toISOString(),
+          error: error.message,
+          realBrowser: false,
+        };
+      }
     },
   }),
 
@@ -283,6 +317,60 @@ export const agentTools = {
         translated: `[Translation of "${text}" to ${to} would appear here]`,
         note: "In production, connects to a translation API",
       };
+    },
+  }),
+
+  browser_scrape: tool({
+    description: "REAL BROWSER SCRAPING - Use Puppeteer to visit any URL and extract content. Perfect for monitoring feeds, checking X/Twitter, or pulling data from websites.",
+    parameters: z.object({
+      url: z.string().describe("The URL to visit and scrape"),
+      selector: z.string().optional().describe("CSS selector to extract specific content (optional)"),
+      userName: z.string().optional().default("friend").describe("User's name for personalization"),
+    }),
+    execute: async ({ url, selector, userName }) => {
+      logAction({
+        agent: "research",
+        action: "browser_scrape",
+        tool: "browser_scrape",
+        input: url,
+        output: null,
+        status: "executed",
+        requiresConsent: false,
+        userId: null,
+      });
+      
+      console.log(`[AGI Tool] 🕷️  Real browser scrape: ${url}`);
+      
+      try {
+        const result = await browserScrapeUrl(url, { userName, selector });
+        
+        if (result.success) {
+          return {
+            url,
+            title: result.data.title,
+            content: result.data.content,
+            timestamp: new Date().toISOString(),
+            message: result.humanMessage || `Scraped ${url}`,
+            realBrowser: true,
+          };
+        } else {
+          return {
+            url,
+            error: result.message,
+            message: result.humanMessage || result.message,
+            timestamp: new Date().toISOString(),
+            realBrowser: false,
+          };
+        }
+      } catch (error: any) {
+        console.error(`[AGI Tool] ❌ Browser scrape error:`, error.message);
+        return {
+          url,
+          error: error.message,
+          timestamp: new Date().toISOString(),
+          realBrowser: false,
+        };
+      }
     },
   }),
 
