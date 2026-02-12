@@ -144,19 +144,23 @@ export async function executeTask(
   app: string,
   action: string,
   parameters: any,
-  userName: string = 'friend'
+  userName: string = 'Scot'
 ): Promise<TaskExecutionResult> {
   try {
-    console.log(`[Integrations] 🎯 Executing ${app}.${action} for user ${userId}`);
+    console.log(`[Integrations] 🎯 EMPLOYEE MODE: Executing ${app}.${action} for ${userId}`);
     
     // Check permission
     const permCheck = hasPermission(userId, app);
     
     if (!permCheck.allowed) {
+      // PROACTIVE SUGGESTION - Offer to link app
+      const { shouldSuggestLinking } = await import("./integrations/oauth_passport");
+      const suggestion = shouldSuggestLinking(userId, app, action);
+      
       return {
         success: false,
         message: permCheck.reason || 'Permission denied',
-        humanMessage: `Hey ${userName}, I need ${app} access first! Grant me permission and I'll get it done.`,
+        humanMessage: suggestion.message,
       };
     }
     
@@ -167,60 +171,32 @@ export async function executeTask(
       return {
         success: false,
         message: `No credentials found for ${app}`,
-        humanMessage: `${userName}, looks like ${app} credentials got lost. Mind re-linking it?`,
+        humanMessage: `${userName}, ${app} token expired or missing. Quick re-link:\n\n🔗 Link ${app} now`,
       };
     }
     
-    // Create task
-    const task: Task = {
-      id: `task-${++taskCounter}-${Date.now()}`,
-      app,
-      action,
-      parameters,
-      status: 'executing',
-      createdAt: Date.now(),
-    };
+    // EMPLOYEE-LIKE: Auto-refresh token if needed
+    const { executeWithApp } = await import("./integrations/oauth_passport");
     
-    taskQueue.push(task);
+    const executionResult = await executeWithApp(
+      userId,
+      app as 'instagram' | 'gmail' | 'twitter',
+      async () => {
+        // Execute the actual task with valid credentials
+        return await executeTaskInternal(app, action, parameters, credentials, userName);
+      }
+    );
     
-    // Execute based on app
-    let result: any;
-    
-    switch (app) {
-      case 'instagram':
-        result = await executeInstagramTask(action, parameters, credentials, userName);
-        break;
-        
-      case 'email':
-        result = await executeEmailTask(action, parameters, credentials, userName);
-        break;
-        
-      case 'twitter':
-        result = await executeTwitterTask(action, parameters, credentials, userName);
-        break;
-        
-      case 'calendar':
-        result = await executeCalendarTask(action, parameters, credentials, userName);
-        break;
-        
-      default:
-        throw new Error(`Unsupported app: ${app}`);
+    if (!executionResult.success) {
+      return {
+        success: false,
+        message: executionResult.error || 'Execution failed',
+        humanMessage: `${userName}, ${app} task failed: ${executionResult.error}`,
+        error: executionResult.error,
+      };
     }
     
-    // Update task
-    task.status = result.success ? 'completed' : 'failed';
-    task.completedAt = Date.now();
-    task.result = result.data;
-    task.error = result.error;
-    
-    // Update last used
-    if (supportedApps[app]) {
-      supportedApps[app].lastUsed = Date.now();
-    }
-    
-    console.log(`[Integrations] ✅ Task ${task.id} completed: ${result.success}`);
-    
-    return result;
+    return executionResult.data;
     
   } catch (error: any) {
     console.error(`[Integrations] ❌ Task execution error:`, error.message);
@@ -231,6 +207,72 @@ export async function executeTask(
       error: error.message,
     };
   }
+}
+
+/**
+ * Internal task execution (called by executeWithApp after auth validation)
+ */
+async function executeTaskInternal(
+  app: string,
+  action: string,
+  parameters: any,
+  credentials: any,
+  userName: string
+): Promise<TaskExecutionResult> {
+    
+  // Create task
+  const task: Task = {
+    id: `task-${++taskCounter}-${Date.now()}`,
+    app,
+    action,
+    parameters,
+    status: 'executing',
+    createdAt: Date.now(),
+  };
+  
+  taskQueue.push(task);
+  
+  // Execute based on app (will be called by executeWithApp)
+  let result: any;
+  
+  // Map email to gmail
+  const executionApp = app === 'email' ? 'gmail' : app;
+  
+  switch (executionApp) {
+    case 'instagram':
+      result = await executeInstagramTask(action, parameters, credentials, userName);
+      break;
+      
+    case 'gmail':
+      result = await executeEmailTask(action, parameters, credentials, userName);
+      break;
+      
+    case 'twitter':
+      result = await executeTwitterTask(action, parameters, credentials, userName);
+      break;
+      
+    case 'calendar':
+      result = await executeCalendarTask(action, parameters, credentials, userName);
+      break;
+      
+    default:
+      throw new Error(`Unsupported app: ${executionApp}`);
+  }
+  
+  // Update task
+  task.status = result.success ? 'completed' : 'failed';
+  task.completedAt = Date.now();
+  task.result = result.data;
+  task.error = result.error;
+  
+  // Update last used
+  if (supportedApps[executionApp]) {
+    supportedApps[executionApp].lastUsed = Date.now();
+  }
+  
+  console.log(`[Integrations] ✅ Employee task ${task.id}: ${result.success} ${result.humanMessage || ''}`);
+  
+  return result;
 }
 
 /**

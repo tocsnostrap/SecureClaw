@@ -377,18 +377,16 @@ export const agentTools = {
   }),
 
   link_app: tool({
-    description: "LINK APP - Connect Instagram, Email, Twitter, etc. for employee-like task execution. Grant permissions and store credentials securely.",
+    description: "SEAMLESS APP LINKING - One-click OAuth2 flow for Instagram, Gmail, Twitter. NO manual credentials! Bot handles everything like an employee.",
     parameters: z.object({
-      app: z.enum(['instagram', 'email', 'twitter', 'calendar']).describe("App to link"),
-      username: z.string().optional().describe("Username/email for the app"),
-      password: z.string().optional().describe("Password or API key"),
+      app: z.enum(['instagram', 'gmail', 'twitter', 'email', 'calendar']).describe("App to link"),
       userId: z.string().default('default_user').describe("User ID"),
-      userName: z.string().optional().default('friend').describe("User's name for personalization"),
+      userName: z.string().optional().default('Scot').describe("User's name for personalization"),
     }),
-    execute: async ({ app, username, password, userId, userName }) => {
+    execute: async ({ app, userId, userName }) => {
       logAction({
         agent: "orchestrator",
-        action: "link_app",
+        action: "link_app_oauth",
         tool: "link_app",
         input: `${app} for ${userId}`,
         output: null,
@@ -397,19 +395,41 @@ export const agentTools = {
         userId: userId,
       });
       
-      console.log(`[AGI Tool] 🔗 Linking ${app} for ${userId}`);
+      console.log(`[AGI Tool] 🔗 Starting OAuth flow for ${app}`);
       
       try {
-        const credentials: any = {};
-        if (username) credentials.username = username;
-        if (password) credentials.password = password;
+        // Check if already linked
+        const { getPermission } = await import("../permissions");
+        const existing = getPermission(userId, app);
         
-        const result = await linkApp(userId, app, credentials, password ? 'password' : 'api_key');
+        if (existing) {
+          return {
+            success: true,
+            app,
+            alreadyLinked: true,
+            message: `${app} already linked`,
+            humanMessage: `${userName}, ${app} is already connected! Ready to use it 🚀`,
+            timestamp: new Date().toISOString(),
+          };
+        }
+        
+        // Map email to gmail
+        const oauthApp = app === 'email' ? 'gmail' : app;
+        
+        // Generate OAuth URL
+        const baseUrl = process.env.REPLIT_DEV_DOMAIN ? 
+          `https://${process.env.REPLIT_DEV_DOMAIN}` : 
+          'http://localhost:5000';
+        
+        const oauthUrl = `${baseUrl}/api/oauth/${oauthApp}?userId=${encodeURIComponent(userId)}`;
         
         return {
-          success: result.success,
+          success: true,
           app,
-          message: result.humanMessage || result.message,
+          needsOAuth: true,
+          oauthUrl,
+          message: `OAuth flow ready for ${app}`,
+          humanMessage: `Perfect, ${userName}! Click this link to connect ${app} (takes 30 seconds):\n\n🔗 ${oauthUrl}\n\nI'll auto-refresh tokens and handle everything from there—you'll never need to re-link! ✨`,
           timestamp: new Date().toISOString(),
         };
       } catch (error: any) {
@@ -418,7 +438,8 @@ export const agentTools = {
           success: false,
           app,
           error: error.message,
-          message: `Oops, ${userName}, couldn't link ${app}: ${error.message}`,
+          message: `OAuth setup failed: ${error.message}`,
+          humanMessage: `${userName}, hit a snag setting up ${app}: ${error.message}`,
           timestamp: new Date().toISOString(),
         };
       }
