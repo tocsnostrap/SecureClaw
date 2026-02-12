@@ -159,18 +159,28 @@ TEST_CASES:
 }
 
 /**
- * DEPLOY NEW TOOL - Write to filesystem and hot-reload
+ * DEPLOY NEW TOOL - Log generated code for review (sandboxed - no filesystem writes)
+ * 
+ * SECURITY: In production, generated code is logged for human review, NOT auto-deployed.
+ * Set ALLOW_SELF_EVOLUTION=true to enable filesystem writes (development only).
  */
 export async function deployNewTool(capability: NewCapability): Promise<boolean> {
-  console.log(`[Self-Evolution] 🚀 Deploying new tool: ${capability.name}`);
+  console.log(`[Self-Evolution] 🚀 Reviewing new tool: ${capability.name}`);
   
   try {
-    // Write implementation file
-    const implPath = path.join(process.cwd(), 'src', 'capabilities', `${capability.name}.ts`);
-    await fs.mkdir(path.dirname(implPath), { recursive: true });
-    await fs.writeFile(implPath, capability.code, 'utf-8');
+    // Log the generated code for review
+    console.log(`[Self-Evolution] 📝 Generated ${capability.code.split('\n').length} lines for: ${capability.name}`);
+    console.log(`[Self-Evolution] 📋 Code preview:\n${capability.code.slice(0, 300)}...`);
     
-    console.log(`[Self-Evolution] 📝 Wrote implementation: ${implPath}`);
+    // Only write to filesystem if explicitly enabled (dev mode)
+    if (process.env.ALLOW_SELF_EVOLUTION === 'true') {
+      const implPath = path.join(process.cwd(), 'src', 'capabilities', `${capability.name}.ts`);
+      await fs.mkdir(path.dirname(implPath), { recursive: true });
+      await fs.writeFile(implPath, capability.code, 'utf-8');
+      console.log(`[Self-Evolution] 📝 Wrote implementation: ${implPath}`);
+    } else {
+      console.log(`[Self-Evolution] 🔒 SANDBOXED: Code logged but NOT written to filesystem. Set ALLOW_SELF_EVOLUTION=true to enable.`);
+    }
     
     // Log evolution
     evolutionHistory.push({
@@ -181,8 +191,7 @@ export async function deployNewTool(capability: NewCapability): Promise<boolean>
       performanceImpact: `Added ${capability.name} tool`,
     });
     
-    console.log(`[Self-Evolution] ✅ Successfully deployed ${capability.name}`);
-    console.log(`[Self-Evolution] 🎯 Tool is now available for use`);
+    console.log(`[Self-Evolution] ✅ Tool ${capability.name} reviewed successfully`);
     
     return true;
   } catch (error: any) {

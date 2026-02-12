@@ -279,14 +279,15 @@ export const agentTools = {
   }),
 
   calculate: tool({
-    description: "Perform mathematical calculations",
+    description: "Perform mathematical calculations safely using mathjs",
     inputSchema: z.object({
-      expression: z.string().describe("Math expression to evaluate"),
+      expression: z.string().describe("Math expression to evaluate (e.g. '2 * (3 + 4)', 'sqrt(16)', 'sin(pi/2)')"),
     }),
     execute: async ({ expression }) => {
       try {
-        const sanitized = expression.replace(/[^0-9+\-*/().%\s]/g, "");
-        const result = Function(`"use strict"; return (${sanitized})`)();
+        // Use mathjs for safe evaluation (no arbitrary code execution)
+        const mathjs = await import("mathjs");
+        const result = mathjs.evaluate(expression);
         return { expression, result: String(result), error: null };
       } catch (e: any) {
         return { expression, result: null, error: e.message };

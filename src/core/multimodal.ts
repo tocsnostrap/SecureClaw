@@ -23,6 +23,16 @@ export async function generateImage(
     const result = await executeBrowserTask(
       'generate_image',
       async (browser, page) => {
+        // Sanitize prompt to prevent XSS injection
+        const safePrompt = prompt
+          .replace(/\\/g, '\\\\')
+          .replace(/'/g, "\\'")
+          .replace(/"/g, '\\"')
+          .replace(/`/g, '\\`')
+          .replace(/\$/g, '\\$')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        
         // Navigate to image generation service or use Canvas API
         await page.setContent(`
           <!DOCTYPE html>
@@ -40,7 +50,7 @@ export async function generateImage(
                 
                 ctx.fillStyle = '#000';
                 ctx.font = '48px Arial';
-                ctx.fillText('${prompt}', 50, 500);
+                ctx.fillText('${safePrompt}', 50, 500);
                 
                 window.generatedImage = canvas.toDataURL();
               </script>
@@ -152,12 +162,22 @@ export async function generateVoice(
     const result = await executeBrowserTask(
       'generate_voice',
       async (browser, page) => {
+        // Sanitize text to prevent injection
+        const safeText = text
+          .replace(/\\/g, '\\\\')
+          .replace(/'/g, "\\'")
+          .replace(/"/g, '\\"')
+          .replace(/`/g, '\\`')
+          .replace(/\$/g, '\\$')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+
         await page.setContent(`
           <!DOCTYPE html>
           <html>
             <body>
               <script>
-                const utterance = new SpeechSynthesisUtterance('${text.replace(/'/g, "\\'")}');
+                const utterance = new SpeechSynthesisUtterance('${safeText}');
                 utterance.voice = speechSynthesis.getVoices().find(v => v.lang === 'en-US');
                 
                 // In production, would record audio and return

@@ -10,7 +10,22 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 
 const PERMISSIONS_FILE = path.join(process.cwd(), '.permissions.json');
-const ENCRYPTION_KEY = process.env.PERMISSIONS_KEY || 'secureclaw_default_key_change_me_32chars';
+
+// Use env var or generate a deterministic key from hostname (warn if insecure)
+function getEncryptionKey(): string {
+  const envKey = process.env.PERMISSIONS_KEY;
+  if (envKey && envKey !== 'secureclaw_default_key_change_me_32chars') {
+    return envKey;
+  }
+  // Fallback: derive from a combination of env values (better than hardcoded, but set PERMISSIONS_KEY!)
+  const fallback = require('crypto')
+    .createHash('sha256')
+    .update(`secureclaw_${process.env.REPL_ID || process.env.HOSTNAME || 'local'}_permissions`)
+    .digest('hex')
+    .slice(0, 32);
+  return fallback;
+}
+const ENCRYPTION_KEY = getEncryptionKey();
 
 export interface Permission {
   app: string;

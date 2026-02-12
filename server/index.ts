@@ -2,16 +2,27 @@ import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import session from "express-session";
 import passport from "passport";
+import crypto from "crypto";
 import { registerRoutes } from "./routes";
+import { apiAuthMiddleware, validateSecrets } from "./auth-middleware";
 import * as fs from "fs";
 import * as path from "path";
 
 const app = express();
 const log = console.log;
 
+// Validate secrets at startup
+validateSecrets();
+
+// Generate a random session secret if none provided (warn about it)
+const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+if (!process.env.SESSION_SECRET) {
+  console.warn("[Security] ⚠️  Using random session secret (sessions won't survive restarts). Set SESSION_SECRET in Replit Secrets.");
+}
+
 // Configure sessions for OAuth
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'secureclaw_session_secret_change_in_production',
+  secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -260,6 +271,9 @@ function setupErrorHandler(app: express.Application) {
   setupCors(app);
   setupBodyParsing(app);
   setupRequestLogging(app);
+
+  // API authentication - must come before routes
+  app.use(apiAuthMiddleware);
 
   configureExpoAndLanding(app);
 
