@@ -155,57 +155,85 @@ export function createOllamaProvider(config: {
   };
 }
 
-// ── Auto-detect provider from environment ───────────────────────────
+// ── Auto-fallback provider: tries each configured provider in order ──
+
+function createFallbackProvider(providers: LLMProvider[]): LLMProvider {
+  if (providers.length === 0) {
+    throw new Error('No LLM providers configured');
+  }
+  if (providers.length === 1) return providers[0];
+
+  return {
+    name: providers.map(p => p.name).join('+'),
+    async chat(messages, options = {}) {
+      let lastError: Error | null = null;
+
+      for (const provider of providers) {
+        try {
+          const result = await provider.chat(messages, options);
+          if (result.content) return result;
+        } catch (err: any) {
+          console.warn(`[Moltbot] ${provider.name} failed: ${err.message}. Trying next provider...`);
+          lastError = err;
+        }
+      }
+
+      throw lastError || new Error('All LLM providers failed');
+    },
+  };
+}
+
+// ── Auto-detect providers from environment ──────────────────────────
 
 export function createProviderFromEnv(): LLMProvider {
-  // Try in order of preference
+  const providers: LLMProvider[] = [];
+
   if (process.env.ANTHROPIC_API_KEY) {
-    console.log('[Moltbot] Using Anthropic Claude');
-    return createAnthropicProvider({
+    providers.push(createAnthropicProvider({
       apiKey: process.env.ANTHROPIC_API_KEY,
       model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
-    });
+    }));
   }
 
   if (process.env.OPENAI_API_KEY) {
-    console.log('[Moltbot] Using OpenAI');
-    return createOpenAIProvider({
+    providers.push(createOpenAIProvider({
       apiKey: process.env.OPENAI_API_KEY,
       model: process.env.OPENAI_MODEL || 'gpt-4o',
       name: 'openai',
-    });
+    }));
   }
 
   if (process.env.XAI_API_KEY) {
-    console.log('[Moltbot] Using xAI Grok');
-    return createOpenAIProvider({
+    providers.push(createOpenAIProvider({
       apiKey: process.env.XAI_API_KEY,
       baseUrl: 'https://api.x.ai/v1',
       model: process.env.XAI_MODEL || 'grok-3-latest',
       name: 'xai',
-    });
+    }));
   }
 
   if (process.env.OLLAMA_HOST || process.env.OLLAMA_MODEL) {
-    console.log('[Moltbot] Using Ollama (local)');
-    return createOllamaProvider({
+    providers.push(createOllamaProvider({
       baseUrl: process.env.OLLAMA_HOST,
       model: process.env.OLLAMA_MODEL || 'llama3',
-    });
+    }));
   }
 
-  // Check for generic OpenAI-compatible endpoint
   if (process.env.LLM_API_KEY && process.env.LLM_BASE_URL) {
-    console.log(`[Moltbot] Using custom LLM: ${process.env.LLM_BASE_URL}`);
-    return createOpenAIProvider({
+    providers.push(createOpenAIProvider({
       apiKey: process.env.LLM_API_KEY,
       baseUrl: process.env.LLM_BASE_URL,
       model: process.env.LLM_MODEL || 'default',
       name: 'custom',
-    });
+    }));
   }
 
-  throw new Error(
-    'No LLM provider configured. Set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, XAI_API_KEY, OLLAMA_MODEL, or LLM_API_KEY + LLM_BASE_URL'
-  );
+  if (providers.length === 0) {
+    throw new Error(
+      'No LLM provider configured. Set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, XAI_API_KEY, OLLAMA_MODEL, or LLM_API_KEY + LLM_BASE_URL'
+    );
+  }
+
+  console.log(`[Moltbot] Providers: ${providers.map(p => p.name).join(', ')} (auto-fallback enabled)`);
+  return createFallbackProvider(providers);
 }
