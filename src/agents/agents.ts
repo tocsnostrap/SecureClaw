@@ -1,4 +1,4 @@
-import { generateText, streamText } from "ai";
+import { generateText, streamText, stepCountIs } from "ai";
 import { createXai } from "@ai-sdk/xai";
 import { z } from "zod";
 import { agentTools, ToolName } from "./tools";
@@ -278,14 +278,14 @@ export async function routeToAgent(
       model: xai(DEFAULT_MODEL),
       messages: allMessages,
       tools,
-      maxTokens: tokenLimit as any,
-      maxSteps: 10, // Allow more tool chaining for autonomous behavior
+      maxOutputTokens: tokenLimit,
+      stopWhen: stepCountIs(10), // Allow more tool chaining for autonomous behavior
       temperature: 0.8, // Higher creativity for AGI-like responses
     });
 
     // Log token usage
     if (result.usage) {
-      console.log(`[Agent ${agent}] Tokens: prompt=${result.usage.promptTokens}, completion=${result.usage.completionTokens}, total=${result.usage.totalTokens}`);
+      console.log(`[Agent ${agent}] Tokens: input=${result.usage.inputTokens}, output=${result.usage.outputTokens}, total=${result.usage.totalTokens}`);
     }
     
     // Check for empty response
@@ -358,17 +358,18 @@ export function streamAgentResponse(
     model: xai(DEFAULT_MODEL),
     messages: allMessages,
     tools,
-    maxTokens: tokenLimit as any,
-    maxSteps: 10, // Allow extensive tool chaining for autonomous behavior
+    maxOutputTokens: tokenLimit,
+    stopWhen: stepCountIs(10), // Allow extensive tool chaining for autonomous behavior
     temperature: 0.8, // Higher creativity for AGI-like responses
     onFinish: async (event) => {
       if (event.usage) {
-        const efficiency = ((event.usage.completionTokens / tokenLimit) * 100).toFixed(1);
-        console.log(`[AGI ${agent}] Tokens: prompt=${event.usage.promptTokens}, completion=${event.usage.completionTokens}, total=${event.usage.totalTokens} (${efficiency}% of limit)`);
+        const outputTokens = event.usage.outputTokens ?? 0;
+        const efficiency = ((outputTokens / tokenLimit) * 100).toFixed(1);
+        console.log(`[AGI ${agent}] Tokens: input=${event.usage.inputTokens}, output=${outputTokens}, total=${event.usage.totalTokens} (${efficiency}% of limit)`);
         
         // AGI self-reflection: analyze if response was complete
-        if (event.usage.completionTokens >= tokenLimit * 0.95) {
-          console.warn(`[AGI ${agent}] 🔄 SELF-REFLECTION: Hit token limit (${event.usage.completionTokens}/${tokenLimit}). User can say "continue" to resume.`);
+        if (outputTokens >= tokenLimit * 0.95) {
+          console.warn(`[AGI ${agent}] 🔄 SELF-REFLECTION: Hit token limit (${outputTokens}/${tokenLimit}). User can say "continue" to resume.`);
         } else {
           console.log(`[AGI ${agent}] ✅ COMPLETE: Response finished naturally within budget.`);
         }

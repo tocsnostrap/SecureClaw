@@ -139,7 +139,7 @@ export async function completeOAuthFlow(
     };
   }
   
-  const config = OAUTH_CONFIGS[session.app];
+  const config = OAUTH_CONFIGS[session.app as keyof typeof OAUTH_CONFIGS];
   
   try {
     // Exchange authorization code for access token

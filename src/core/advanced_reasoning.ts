@@ -275,14 +275,9 @@ Provide insights to improve your own learning algorithms.`;
 }
 
 export default {
-  analyzeCapabilityGaps,
-  generateNewTool,
-  deployNewTool,
-  runSelfImprovementCycle,
   chainOfThoughtReasoning,
   selfCorrect,
   planComplexTask,
   predictNextAction,
   metaLearn,
-  getEvolutionHistory,
 };

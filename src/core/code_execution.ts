@@ -6,6 +6,7 @@
  */
 
 import { executeBrowserTask } from '../skills/browser_skill';
+import { callGrok } from '../agents/providers/xai';
 import vm from 'vm';
 
 /**
@@ -50,7 +51,6 @@ export async function executeJavaScript(
     
     const script = new vm.Script(wrappedCode, {
       filename: 'user_code.js',
-      timeout,
     });
     
     const context = vm.createContext(sandbox);

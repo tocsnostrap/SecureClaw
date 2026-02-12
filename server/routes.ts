@@ -6,6 +6,19 @@ import { WebSocketServer, WebSocket } from "ws";
 import passport from "passport";
 import { streamAgentResponse, routeToAgent, listAgents } from "../src/agents/agents";
 import { getProactiveTasks, createProactiveTask, toggleProactiveTask, deleteProactiveTask, executeTaskNow, DEFAULT_TASK_TEMPLATES, getAuditLog, getAuditStats } from "../src/agents/proactive";
+import { grantPermission } from "../src/permissions";
+
+// Augment Express Request to include passport user
+declare global {
+  namespace Express {
+    interface User {
+      accessToken?: string;
+      refreshToken?: string;
+      profile?: any;
+      email?: string;
+    }
+  }
+}
 
 const ChatRequestSchema = z.object({
   messages: z.array(
@@ -374,17 +387,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/dashboard/help", async (req: Request, res: Response) => {
     try {
       const query = req.query.q as string || '';
-      const { searchWiki, getCategories, TUTORIALS, FAQS, COMMANDS } = await import("../src/help_wiki");
+      const helpWiki = await import("../src/help_wiki");
       
       if (query) {
-        const results = await searchWiki(query);
+        const results = await helpWiki.searchWiki(query);
         res.json(results);
       } else {
         res.json({
-          categories: getCategories(),
-          tutorials: TUTORIALS,
-          faqs: FAQS,
-          commands: COMMANDS,
+          categories: helpWiki.getCategories(),
+          tutorials: helpWiki.default.TUTORIALS,
+          faqs: helpWiki.default.FAQS,
+          commands: helpWiki.default.COMMANDS,
         });
       }
     } catch (error: any) {

@@ -145,12 +145,12 @@ export async function callGrok(
           role: m.role,
           content: m.content,
         })),
-        maxTokens: MAX_TOKENS,
+        maxOutputTokens: MAX_TOKENS,
       });
 
       // Log token usage for cost tracking
       if (usage) {
-        console.log(`[xAI] Tokens: prompt=${usage.promptTokens}, completion=${usage.completionTokens}, total=${usage.totalTokens}`);
+        console.log(`[xAI] Tokens: input=${usage.inputTokens}, output=${usage.outputTokens}, total=${usage.totalTokens}`);
       }
 
       // Handle empty or very short responses
@@ -254,10 +254,10 @@ export async function streamGrok(
       role: m.role,
       content: m.content,
     })),
-    maxTokens: MAX_TOKENS,
+    maxOutputTokens: MAX_TOKENS,
     onFinish: async (event) => {
       if (event.usage) {
-        console.log(`[xAI] Stream finished - Tokens: prompt=${event.usage.promptTokens}, completion=${event.usage.completionTokens}, total=${event.usage.totalTokens}`);
+        console.log(`[xAI] Stream finished - Tokens: input=${event.usage.inputTokens}, output=${event.usage.outputTokens}, total=${event.usage.totalTokens}`);
       }
       if (!event.text || event.text.trim().length < 10) {
         console.warn(`[xAI] Stream produced empty/short response: "${event.text}"`);

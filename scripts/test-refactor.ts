@@ -97,17 +97,18 @@ async function testCodeGeneration() {
   try {
     const tool = agentTools.generate_code;
     
-    const result = await tool.execute({
+    const result = await tool.execute!({
       description: "Virtual robot army simulation",
       language: "javascript",
       style: "game",
       includeTests: false,
-    });
+    }, { toolCallId: 'test', messages: [] });
     
-    if (result.code && result.code.includes("class Robot")) {
+    const res = result as any;
+    if (res.code && res.code.includes("class Robot")) {
       log("✅ PASS: Code generation working", "green");
-      log(`   Generated ${result.linesOfCode} lines of code`, "blue");
-      log(`   Explanation: ${result.explanation.slice(0, 80)}...`, "blue");
+      log(`   Generated ${res.linesOfCode} lines of code`, "blue");
+      log(`   Explanation: ${res.explanation.slice(0, 80)}...`, "blue");
     } else {
       log("❌ FAIL: Invalid code output", "red");
     }

@@ -34,13 +34,13 @@ type SuperTab =
   | 'autonomous';
 
 const SUPER_TABS = [
-  { id: 'command', label: 'Command', icon: 'terminal', gradient: ['#00D9A6', '#00B386'] },
-  { id: 'apps', label: 'Apps', icon: 'apps', gradient: ['#3B82F6', '#1D4ED8'] },
-  { id: 'permissions', label: 'Access', icon: 'key', gradient: ['#8B5CF6', '#6D28D9'] },
-  { id: 'monitor', label: 'Monitor', icon: 'pulse', gradient: ['#EF4444', '#DC2626'] },
-  { id: 'evolution', label: 'Evolution', icon: 'git-network', gradient: ['#F59E0B', '#D97706'] },
-  { id: 'multimodal', label: 'Media', icon: 'images', gradient: ['#10B981', '#059669'] },
-  { id: 'autonomous', label: 'Autonomous', icon: 'infinite', gradient: ['#EC4899', '#DB2777'] },
+  { id: 'command', label: 'Command', icon: 'terminal', gradient: ['#00D9A6', '#00B386'] as const },
+  { id: 'apps', label: 'Apps', icon: 'apps', gradient: ['#3B82F6', '#1D4ED8'] as const },
+  { id: 'permissions', label: 'Access', icon: 'key', gradient: ['#8B5CF6', '#6D28D9'] as const },
+  { id: 'monitor', label: 'Monitor', icon: 'pulse', gradient: ['#EF4444', '#DC2626'] as const },
+  { id: 'evolution', label: 'Evolution', icon: 'git-network', gradient: ['#F59E0B', '#D97706'] as const },
+  { id: 'multimodal', label: 'Media', icon: 'images', gradient: ['#10B981', '#059669'] as const },
+  { id: 'autonomous', label: 'Autonomous', icon: 'infinite', gradient: ['#EC4899', '#DB2777'] as const },
 ];
 
 export default function SuperDashboard() {

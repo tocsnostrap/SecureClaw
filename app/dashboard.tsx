@@ -761,6 +761,17 @@ const styles = StyleSheet.create({
     color: Colors.dark.text,
     textTransform: "capitalize",
   },
+  agentTitle: {
+    fontSize: 15,
+    fontFamily: "SpaceGrotesk_600SemiBold",
+    color: Colors.dark.text,
+  },
+  agentDescription: {
+    fontSize: 12,
+    fontFamily: "SpaceGrotesk_400Regular",
+    color: Colors.dark.secondaryText,
+    marginTop: 2,
+  },
   proactiveBadge: {
     backgroundColor: `${Colors.emerald}20`,
     paddingHorizontal: 6,

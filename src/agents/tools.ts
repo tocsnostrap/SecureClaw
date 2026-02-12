@@ -8,7 +8,7 @@ import { grantPermission, getAllPermissions } from "../permissions";
 export const agentTools = {
   web_search: tool({
     description: "REAL BROWSER-BASED WEB SEARCH - Uses Puppeteer to search Google and extract actual results. AGI-tier execution power.",
-    parameters: z.object({
+    inputSchema: z.object({
       query: z.string().describe("The search query"),
       maxResults: z.number().optional().default(5).describe("Maximum number of results"),
       userName: z.string().optional().default("friend").describe("User's name for personalization"),
@@ -72,7 +72,7 @@ export const agentTools = {
 
   summarize: tool({
     description: "Summarize a block of text into key points",
-    parameters: z.object({
+    inputSchema: z.object({
       text: z.string().describe("The text to summarize"),
       style: z
         .enum(["brief", "detailed", "bullets"])
@@ -101,7 +101,7 @@ export const agentTools = {
 
   schedule_task: tool({
     description: "Schedule a recurring or one-time task for the agent to execute",
-    parameters: z.object({
+    inputSchema: z.object({
       name: z.string().describe("Task name"),
       description: z.string().describe("What the task should do"),
       cronExpression: z
@@ -143,7 +143,7 @@ export const agentTools = {
 
   send_notification: tool({
     description: "Send a push notification to the user's device",
-    parameters: z.object({
+    inputSchema: z.object({
       title: z.string().describe("Notification title"),
       body: z.string().describe("Notification body text"),
       priority: z
@@ -175,7 +175,7 @@ export const agentTools = {
 
   get_weather: tool({
     description: "Get current weather for a location",
-    parameters: z.object({
+    inputSchema: z.object({
       location: z.string().describe("City or location name"),
     }),
     execute: async ({ location }) => {
@@ -202,7 +202,7 @@ export const agentTools = {
 
   get_time: tool({
     description: "Get current date and time information",
-    parameters: z.object({
+    inputSchema: z.object({
       timezone: z.string().optional().default("UTC").describe("Timezone"),
     }),
     execute: async ({ timezone }) => {
@@ -218,7 +218,7 @@ export const agentTools = {
 
   read_rss: tool({
     description: "Read and parse an RSS feed for latest updates",
-    parameters: z.object({
+    inputSchema: z.object({
       url: z.string().describe("RSS feed URL"),
       limit: z.number().optional().default(5).describe("Number of items to return"),
     }),
@@ -251,7 +251,7 @@ export const agentTools = {
 
   set_reminder: tool({
     description: "Set a reminder for the user at a specific time",
-    parameters: z.object({
+    inputSchema: z.object({
       message: z.string().describe("Reminder message"),
       triggerAt: z.string().describe("When to trigger (ISO timestamp or relative like '2h', '30m')"),
       recurring: z.boolean().optional().default(false).describe("Whether this repeats"),
@@ -280,7 +280,7 @@ export const agentTools = {
 
   calculate: tool({
     description: "Perform mathematical calculations",
-    parameters: z.object({
+    inputSchema: z.object({
       expression: z.string().describe("Math expression to evaluate"),
     }),
     execute: async ({ expression }) => {
@@ -296,7 +296,7 @@ export const agentTools = {
 
   translate: tool({
     description: "Translate text between languages",
-    parameters: z.object({
+    inputSchema: z.object({
       text: z.string().describe("Text to translate"),
       from: z.string().optional().default("auto").describe("Source language"),
       to: z.string().describe("Target language"),
@@ -324,7 +324,7 @@ export const agentTools = {
 
   browser_scrape: tool({
     description: "REAL BROWSER SCRAPING - Use Puppeteer to visit any URL and extract content. Perfect for monitoring feeds, checking X/Twitter, or pulling data from websites.",
-    parameters: z.object({
+    inputSchema: z.object({
       url: z.string().describe("The URL to visit and scrape"),
       selector: z.string().optional().describe("CSS selector to extract specific content (optional)"),
       userName: z.string().optional().default("friend").describe("User's name for personalization"),
@@ -378,7 +378,7 @@ export const agentTools = {
 
   link_app: tool({
     description: "SEAMLESS APP LINKING - One-click OAuth2 flow for Instagram, Gmail, Twitter. NO manual credentials! Bot handles everything like an employee.",
-    parameters: z.object({
+    inputSchema: z.object({
       app: z.enum(['instagram', 'gmail', 'twitter', 'email', 'calendar']).describe("App to link"),
       userId: z.string().default('default_user').describe("User ID"),
       userName: z.string().optional().default('Scot').describe("User's name for personalization"),
@@ -448,7 +448,7 @@ export const agentTools = {
 
   monitor_system: tool({
     description: "SYSTEM STATUS MONITORING - Clawdbot-style health checks. Check gateway, Grok, browser, permissions status with uptime tracking.",
-    parameters: z.object({
+    inputSchema: z.object({
       service: z.enum(['all', 'gateway', 'grok', 'browser', 'permissions']).optional().default('all').describe("Service to check"),
       userName: z.string().optional().default('friend').describe("User's name"),
     }),
@@ -514,7 +514,7 @@ export const agentTools = {
 
   get_help: tool({
     description: "HELP/WIKI SEARCH - OpenClaw百科 style. Search tutorials, FAQs, commands. Dynamic help via Grok if not in wiki.",
-    parameters: z.object({
+    inputSchema: z.object({
       query: z.string().describe("What to search for (e.g., 'instagram', 'browser automation', 'setup')"),
       userName: z.string().optional().default('friend').describe("User's name"),
     }),
@@ -559,7 +559,7 @@ export const agentTools = {
 
   execute_app_task: tool({
     description: "EXECUTE APP TASK - Employee-like task execution. Post to Instagram, send emails, tweet, etc. Requires app to be linked first.",
-    parameters: z.object({
+    inputSchema: z.object({
       app: z.enum(['instagram', 'email', 'twitter', 'calendar']).describe("App to use"),
       action: z.string().describe("Action to perform (e.g., 'post_photo', 'send_email', 'post_tweet')"),
       parameters: z.any().describe("Action parameters (e.g., {imageUrl, caption} for Instagram post)"),
@@ -607,7 +607,7 @@ export const agentTools = {
 
   self_evolve: tool({
     description: "SELF-EVOLUTION - AI writes NEW TOOLS for itself! Analyzes gaps, generates code, and deploys new capabilities autonomously. True AGI self-improvement.",
-    parameters: z.object({
+    inputSchema: z.object({
       capabilityNeeded: z.string().describe("What new capability to generate (e.g., 'pdf_parser', 'image_editor', 'data_analyzer')"),
       reason: z.string().optional().describe("Why this capability is needed"),
     }),
@@ -650,7 +650,7 @@ export const agentTools = {
 
   deep_reason: tool({
     description: "ADVANCED REASONING - Chain-of-thought, step-by-step analysis for complex problems. Makes AI THINK deeply before answering.",
-    parameters: z.object({
+    inputSchema: z.object({
       query: z.string().describe("Complex query requiring deep reasoning"),
       maxSteps: z.number().optional().default(10).describe("Max reasoning steps"),
     }),
@@ -685,7 +685,7 @@ export const agentTools = {
 
   generate_image: tool({
     description: "MULTIMODAL - Generate images from text descriptions. Creates actual visual content.",
-    parameters: z.object({
+    inputSchema: z.object({
       prompt: z.string().describe("Image description"),
       style: z.enum(['photorealistic', 'artistic', 'diagram', 'cartoon']).optional().default('photorealistic'),
       userName: z.string().optional().default('friend'),
@@ -717,7 +717,7 @@ export const agentTools = {
 
   predict_next: tool({
     description: "PREDICTIVE AI - Anticipate what user will need next based on conversation patterns. Proactive intelligence.",
-    parameters: z.object({
+    inputSchema: z.object({
       context: z.string().describe("Current conversation context"),
     }),
     execute: async ({ context }) => {
@@ -745,7 +745,7 @@ export const agentTools = {
 
   agent_swarm: tool({
     description: "MULTI-AGENT COLLABORATION - Deploy swarm of AI agents (orchestrator, researcher, coder, tester) to solve complex problems together. True collaborative intelligence.",
-    parameters: z.object({
+    inputSchema: z.object({
       goal: z.string().describe("Complex goal requiring multiple agents"),
       agents: z.array(z.string()).optional().describe("Agent types needed"),
     }),
@@ -778,7 +778,7 @@ export const agentTools = {
 
   execute_code: tool({
     description: "LIVE CODE EXECUTION - Run JavaScript/Python code immediately in secure sandbox. Not just generation - actual execution with results.",
-    parameters: z.object({
+    inputSchema: z.object({
       code: z.string().describe("Code to execute"),
       language: z.enum(['javascript', 'python']).describe("Programming language"),
       timeout: z.number().optional().default(5000).describe("Execution timeout in ms"),
@@ -793,15 +793,17 @@ export const agentTools = {
           await executeJavaScript(code, timeout) :
           await executePython(code);
         
+        const execTime = 'executionTime' in result ? result.executionTime : 0;
+        
         return {
           success: result.success,
           output: result.output,
           error: result.error,
-          executionTime: result.executionTime,
+          executionTime: execTime,
           language,
-          message: result.success ? `Code executed in ${result.executionTime}ms` : `Execution failed: ${result.error}`,
+          message: result.success ? `Code executed in ${execTime}ms` : `Execution failed: ${result.error}`,
           humanMessage: result.success ?
-            `Ran that code! ⚡\n\nOutput: ${JSON.stringify(result.output)}\n\nTime: ${result.executionTime}ms` :
+            `Ran that code! ⚡\n\nOutput: ${JSON.stringify(result.output)}\n\nTime: ${execTime}ms` :
             `Code crashed: ${result.error}. Want me to fix it?`,
         };
       } catch (error: any) {
@@ -816,7 +818,7 @@ export const agentTools = {
 
   optimize_performance: tool({
     description: "SELF-OPTIMIZATION - AI analyzes its own performance and applies improvements autonomously. Gets faster and smarter over time.",
-    parameters: z.object({
+    inputSchema: z.object({
       targetArea: z.string().optional().describe("Specific area to optimize (e.g., 'token usage', 'response time')"),
     }),
     execute: async ({ targetArea }) => {
@@ -845,7 +847,7 @@ export const agentTools = {
 
   generate_code: tool({
     description: "Generate code for creative implementations, simulations, games, demos, and technical projects. Use this for ANY request involving building, creating, or implementing something.",
-    parameters: z.object({
+    inputSchema: z.object({
       description: z.string().describe("Detailed description of what to create"),
       language: z.enum(["javascript", "python", "html", "typescript", "jsx", "react"]).optional().default("javascript").describe("Programming language"),
       style: z.enum(["simple", "advanced", "interactive", "game", "simulation", "visualization"]).optional().default("simple").describe("Implementation style"),
