@@ -1,0 +1,57 @@
+{
+  "test_user_scot:instagram": {
+    "app": "instagram",
+    "granted": true,
+    "grantedAt": 1770907620370,
+    "credentials": {
+      "encrypted": "5561065e06573e6453aa3795f9edc22553983438e1ae0af7565dd04b3b581e6dbee2cc26acd3bb6dbbf96cd61142de2fc287a9a5a74ea962014281d77ef1f12b98ccbcccfd8c60e8724d0726f4de08709fe1318fbe0fa55f2afc93e1ecb395388ab3b093d2c33bcb4402b916e347bc0174c707336970f65b367e897370392561f1000b89afcda9789eed5fdab59d4ee3cef5061b0ecb0d78d0b880e1322754cefa759f5569bd41d9b2008109b49b6782f017eea58883fc2fe6ae8302aee1df725bb94b58e0555f381d800935cc3afba80b532625d01b8e1750c7af959c2c1856",
+      "iv": "6d8779c7ec29b94e76213f6b5fb33e1e"
+    },
+    "scopes": [
+      "read",
+      "write"
+    ],
+    "userId": "test_user_scot",
+    "metadata": {
+      "username": "scot_insta",
+      "validatedAt": 1770907620369
+    }
+  },
+  "test_user_scot:email": {
+    "app": "email",
+    "granted": true,
+    "grantedAt": 1770907620873,
+    "credentials": {
+      "encrypted": "c699e3d8b3616c4f5b925553cf7825a166f856f799b6eb264a5233c0d8a491282ac51e26cb4b0dfd88a8e3f765b1094616d9983af5d7ffb4d0b64a97c1edd24156701be5394f3246539a03e42feff77a706fd4906506f92fbe80993ccd0ccdb29d172d95afa9498e56d8abe31829df04f2734e36338889162ea1ee81bdb190ed68adf661761429cc257582359f5c7f5b21ca2e3af01a36b0c4518b0f2efd4a9f12dcb3dbac47a472f713d978e6ed06bcf389c496457597c27739c9ec6154604b6d2d1f7ec1daeae1bb68241fe3c69907",
+      "iv": "1626c7d3bc83a6dee05174efe66c000c"
+    },
+    "scopes": [
+      "read",
+      "write"
+    ],
+    "userId": "test_user_scot",
+    "metadata": {
+      "username": "user",
+      "email": "scot@example.com",
+      "validatedAt": 1770907620873
+    }
+  },
+  "test_user_scot:twitter": {
+    "app": "twitter",
+    "granted": true,
+    "grantedAt": 1770907621376,
+    "credentials": {
+      "encrypted": "b78c6bf8801b8c8ecd572ce61d468cb200cca9561cf36a6e4d408f6600b91eea82b1d9f32c59fda9e876ddd1cfda869897d3970e4818e905c8e895387c64d3839d1f9f32782783635f5ca04dd1aef27905898a09e78b25651ce5e7c9ad17088e51f9be0f999510572e8b7f02a934384c911ff7e9b314e093b65c0eb5314df6988309c3fd1debe8ab96b9cc923fd647b96f8a8f8cb42e6f6a5efd69072fc29a44141ab68a7f10370efe540238bf74b36061bac0894938345ae0f2c1d91839c5128708f717e0b79c41d965ee5f42739249",
+      "iv": "d899a97ac08d289d7fb099d00dec72a3"
+    },
+    "scopes": [
+      "read",
+      "write"
+    ],
+    "userId": "test_user_scot",
+    "metadata": {
+      "username": "scot_tweets",
+      "validatedAt": 1770907621375
+    }
+  }
+}

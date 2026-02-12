@@ -6,6 +6,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import passport from "passport";
 import { streamAgentResponse, routeToAgent, listAgents } from "../src/agents/agents";
 import { getProactiveTasks, createProactiveTask, toggleProactiveTask, deleteProactiveTask, executeTaskNow, DEFAULT_TASK_TEMPLATES, getAuditLog, getAuditStats } from "../src/agents/proactive";
+import { grantPermission } from "../src/permissions";
 
 const ChatRequestSchema = z.object({
   messages: z.array(
@@ -638,6 +639,119 @@ export async function registerRoutes(app: Express): Promise<Server> {
         </body>
       </html>
     `);
+  });
+
+  // PUSH NOTIFICATIONS ENDPOINTS
+
+  // Register device token
+  app.post("/api/notifications/register", async (req: Request, res: Response) => {
+    try {
+      const { userId, deviceToken } = req.body;
+      if (!userId || !deviceToken) {
+        return res.status(400).json({ error: "userId and deviceToken required" });
+      }
+
+      const { registerDeviceToken } = await import("../src/notifications/push");
+      registerDeviceToken(userId, deviceToken);
+
+      res.json({ success: true, message: "Device token registered" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Send test push notification
+  app.post("/api/notifications/test", async (req: Request, res: Response) => {
+    try {
+      const { deviceToken, userName } = req.body;
+      if (!deviceToken) {
+        return res.status(400).json({ error: "deviceToken required" });
+      }
+
+      const { sendTestPush } = await import("../src/notifications/push");
+      const result = await sendTestPush(deviceToken, userName || "friend");
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // WHATSAPP WEBHOOK (Twilio)
+  app.post("/api/whatsapp/webhook", async (req: Request, res: Response) => {
+    try {
+      const { From, Body, MessageSid } = req.body;
+
+      console.log(`[WhatsApp] Webhook received from ${From}: ${Body}`);
+
+      // Validate webhook signature
+      const { validateWebhook, processIncomingWebhook } = await import("../src/messaging/whatsapp");
+      
+      const signature = req.headers['x-twilio-signature'] as string;
+      const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+      
+      if (signature && !validateWebhook(signature, url, req.body)) {
+        return res.status(403).json({ error: "Invalid signature" });
+      }
+
+      // Process message
+      const result = await processIncomingWebhook(From, Body);
+
+      // Respond to Twilio (empty response = no auto-reply)
+      res.setHeader('Content-Type', 'text/xml');
+      res.send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+    } catch (error: any) {
+      console.error(`[WhatsApp] Webhook error:`, error.message);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Send WhatsApp message (manual)
+  app.post("/api/whatsapp/send", async (req: Request, res: Response) => {
+    try {
+      const { to, message, mediaUrl } = req.body;
+      if (!to || !message) {
+        return res.status(400).json({ error: "to and message required" });
+      }
+
+      const { sendWhatsAppMessage } = await import("../src/messaging/whatsapp");
+      const result = await sendWhatsAppMessage(to, message, mediaUrl);
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // TELEGRAM BOT STATUS
+  app.get("/api/telegram/status", async (_req: Request, res: Response) => {
+    try {
+      // Check if bot is running
+      const botActive = process.env.TELEGRAM_BOT_TOKEN ? true : false;
+      
+      res.json({
+        active: botActive,
+        configured: !!process.env.TELEGRAM_BOT_TOKEN,
+        message: botActive ? "Telegram bot is running" : "Telegram bot not configured",
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // CRON TASKS STATUS
+  app.get("/api/cron/status", async (_req: Request, res: Response) => {
+    try {
+      const { getCronTasksStatus } = await import("../src/cron/autonomous-tasks");
+      const status = getCronTasksStatus();
+
+      res.json({
+        enabled: process.env.ENABLE_CRON === 'true',
+        tasks: status,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
   });
 
   const httpServer = createServer(app);

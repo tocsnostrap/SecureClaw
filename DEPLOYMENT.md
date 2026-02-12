@@ -1,240 +1,356 @@
-# SecureClaw Deployment Guide for Replit
+# 🚀 SecureClaw Stage 2 Deployment Guide
 
-## ✅ Changes Successfully Pushed
+Deploy SecureClaw to production on Replit Reserved VM, DigitalOcean, AWS EC2, or any VPS.
 
-All refactor changes have been committed and pushed to:
-- **Branch**: `cursor/assistant-autonomy-and-optimization-9f3b`
-- **Repository**: https://github.com/tocsnostrap/SecureClaw
+## 📋 Prerequisites
 
-## 🚀 Deploy on Replit
+- Node.js 20+
+- Git
+- Domain name (optional but recommended for SSL)
+- API keys for services you want to use
 
-### 1. Pull Latest Changes
+## 🎯 Quick Deploy Options
 
-On Replit, open the Shell and run:
+### Option 1: Replit Reserved VM (Easiest)
+
+1. **Reserve a VM** in your Replit workspace
+2. **Configure .env** in Replit Secrets:
+   ```bash
+   XAI_API_KEY=your_key_here
+   SECURECLAW_AUTH_TOKEN=your_token_here
+   # Add other keys as needed
+   ```
+3. **Run deployment:**
+   ```bash
+   npm run server:build
+   pm2 start ecosystem.config.js --env production
+   pm2 save
+   ```
+
+Your app will be live on your Replit domain!
+
+### Option 2: DigitalOcean/AWS/VPS (Full Control)
+
+1. **Provision VPS:**
+   - DigitalOcean: Create Ubuntu 22.04 Droplet ($6/month)
+   - AWS EC2: Launch Ubuntu 22.04 t2.micro instance
+   - Any VPS: Ubuntu 22.04 LTS
+
+2. **SSH into server:**
+   ```bash
+   ssh root@your-server-ip
+   ```
+
+3. **Run auto-deploy script:**
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/yourusername/secureclaw/main/deploy.sh | bash
+   ```
+
+   Or manually:
+   ```bash
+   sudo bash deploy.sh
+   ```
+
+4. **Configure environment:**
+   ```bash
+   cd /opt/secureclaw
+   nano .env  # Edit with your credentials
+   ```
+
+5. **Restart services:**
+   ```bash
+   pm2 restart all
+   ```
+
+### Option 3: Docker (Containerized)
+
+1. **Build image:**
+   ```bash
+   docker build -t secureclaw:latest .
+   ```
+
+2. **Create .env file:**
+   ```bash
+   cp .env.example .env
+   nano .env  # Add your credentials
+   ```
+
+3. **Run with Docker Compose:**
+   ```bash
+   docker-compose up -d
+   ```
+
+Your app will run on ports 5000 (API) and 18789 (Gateway).
+
+## 🔑 Required API Keys
+
+### Essential (Core Functionality)
+- **xAI Grok API Key**: Get from [x.ai/api](https://x.ai/api)
+- **SECURECLAW_AUTH_TOKEN**: Generate a random 32+ character string
+- **SESSION_SECRET**: Generate a random 32+ character string
+- **PERMISSIONS_KEY**: Generate a random 32-character encryption key
+
+### Push Notifications
+- **Firebase FCM**: 
+  1. Go to [Firebase Console](https://console.firebase.google.com)
+  2. Create project → Add app (iOS/Android)
+  3. Download service account JSON
+  4. Set `FIREBASE_SERVICE_ACCOUNT_PATH` or `FIREBASE_SERVICE_ACCOUNT_JSON`
+
+### Messaging Integrations
+- **Telegram**:
+  1. Message [@BotFather](https://t.me/BotFather) on Telegram
+  2. Create bot: `/newbot`
+  3. Copy token to `TELEGRAM_BOT_TOKEN`
+
+- **WhatsApp (Twilio)**:
+  1. Sign up at [twilio.com](https://www.twilio.com)
+  2. Get Account SID and Auth Token
+  3. Get WhatsApp sandbox number or apply for production number
+  4. Set webhook to `https://yourdomain.com/api/whatsapp/webhook`
+
+### OAuth App Integrations
+- **Instagram** (via Facebook):
+  1. [Facebook Developers](https://developers.facebook.com)
+  2. Create app → Add Instagram Basic Display
+  3. Add redirect URI: `https://yourdomain.com/api/oauth/callback/instagram`
+
+- **Gmail** (via Google):
+  1. [Google Cloud Console](https://console.cloud.google.com)
+  2. Enable Gmail API
+  3. Create OAuth credentials
+  4. Add redirect URI: `https://yourdomain.com/api/oauth/callback/google`
+
+- **Twitter**:
+  1. [Twitter Developer Portal](https://developer.twitter.com)
+  2. Create app → OAuth 2.0
+  3. Add redirect URI: `https://yourdomain.com/api/oauth/callback/twitter`
+
+## 🔒 SSL/HTTPS Setup (Production)
+
+### Using Let's Encrypt (Recommended)
 
 ```bash
-git fetch origin
-git checkout cursor/assistant-autonomy-and-optimization-9f3b
-git pull origin cursor/assistant-autonomy-and-optimization-9f3b
+# Install Certbot
+sudo apt install certbot
+
+# Get certificate
+sudo certbot certonly --standalone -d yourdomain.com
+
+# Certificates will be at:
+# /etc/letsencrypt/live/yourdomain.com/fullchain.pem
+# /etc/letsencrypt/live/yourdomain.com/privkey.pem
+
+# Copy to app directory
+sudo cp /etc/letsencrypt/live/yourdomain.com/fullchain.pem /opt/secureclaw/certs/cert.pem
+sudo cp /etc/letsencrypt/live/yourdomain.com/privkey.pem /opt/secureclaw/certs/key.pem
+
+# Restart services
+pm2 restart all
 ```
 
-### 2. Install Dependencies
-
+### Auto-renewal
 ```bash
-npm install
+# Add to crontab
+sudo crontab -e
+
+# Add this line (renew every 2 months):
+0 0 1 */2 * certbot renew --post-hook "cp /etc/letsencrypt/live/yourdomain.com/*.pem /opt/secureclaw/certs/ && pm2 restart all"
 ```
 
-### 3. Configure Environment Variables
+## 📊 Monitoring & Management
 
-In Replit Secrets (🔒 icon in left sidebar), add:
-
-```
-XAI_API_KEY=your_xai_api_key_here
-NODE_ENV=development
-GROK_MAX_TOKENS=2048
-PORT=5000
-```
-
-### 4. Start the Server
-
-Open two Shell tabs:
-
-**Tab 1 - Backend Server:**
+### PM2 Commands
 ```bash
-npm run server:dev
+# View status
+pm2 status
+
+# View logs
+pm2 logs
+
+# View real-time monitoring
+pm2 monit
+
+# Restart all
+pm2 restart all
+
+# Stop all
+pm2 stop all
+
+# Save configuration
+pm2 save
+
+# View startup script
+pm2 startup
 ```
 
-**Tab 2 - Expo Development Server:**
+### Health Check
 ```bash
-npm run expo:dev
-```
-
-### 5. Verify Deployment
-
-#### Health Check
-```bash
+# Check if API is responding
 curl http://localhost:5000/api/health
+
+# Should return:
+# {"status":"ok","service":"SecureClaw Gateway","systems":{...}}
 ```
 
-Expected response:
-```json
-{
-  "status": "ok",
-  "service": "SecureClaw Gateway",
-  "ai": "configured",
-  "agents": {
-    "orchestrator": true,
-    "scheduler": true,
-    "research": true,
-    "device": true
-  },
-  "proactive": true
-}
-```
+### Logs Location
+- PM2 logs: `/opt/secureclaw/logs/`
+- Gateway: `logs/gateway-out.log`, `logs/gateway-error.log`
+- Server: `logs/server-out.log`, `logs/server-error.log`
+- Cron: `logs/cron-out.log`, `logs/cron-error.log`
 
-#### Test AI Endpoint
+## 🌐 Domain & DNS Setup
+
+1. **Point domain to server:**
+   ```
+   A Record: @ → your-server-ip
+   A Record: www → your-server-ip
+   ```
+
+2. **Update .env:**
+   ```bash
+   DOMAIN=yourdomain.com
+   OAUTH_REDIRECT_URI=https://yourdomain.com/api/oauth/callback
+   ```
+
+3. **Configure OAuth redirects** in each provider's dashboard
+
+## 🔥 Firewall Configuration
+
 ```bash
-curl -X POST http://localhost:5000/api/chat \
+# Allow HTTP, HTTPS, SSH
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 22/tcp
+
+# Allow SecureClaw ports
+sudo ufw allow 5000/tcp
+sudo ufw allow 18789/tcp
+
+# Enable firewall
+sudo ufw enable
+```
+
+## 🧪 Testing the Deployment
+
+### 1. Health Check
+```bash
+curl https://yourdomain.com/api/health
+```
+
+### 2. Test Push Notification
+```bash
+curl -X POST https://yourdomain.com/api/notifications/test \
   -H "Content-Type: application/json" \
-  -d '{
-    "messages": [
-      {"role": "user", "content": "Create a simple robot simulation"}
-    ]
-  }'
+  -d '{"deviceToken":"YOUR_DEVICE_TOKEN","userName":"Scot"}'
 ```
 
-## 🧪 Test Creative Queries
+### 3. Test OAuth Flow
+Visit: `https://yourdomain.com/api/oauth/instagram`
 
-Open the iOS preview or web UI and try these queries that now work:
+### 4. Test Telegram Bot
+Message your bot on Telegram: `/start`
 
-### ✅ Creative Code Generation
-```
-"Create a virtual robot army"
-"Invent a space exploration game"
-"Build a particle physics simulation"
-"Generate a neural network visualization"
-```
+### 5. Test WhatsApp
+Send message to your Twilio WhatsApp number
 
-### ✅ Ambiguous Commands (Now Adaptive)
-```
-"Ok go"
-"Do something cool"
-"Surprise me"
-"Continue"
-```
+## 🚨 Troubleshooting
 
-### ✅ Multi-Step Tasks
-```
-"Search for AI news and create a daily briefing task"
-"Build a game and schedule hourly leaderboard updates"
-"Generate code for a chatbot and test it"
-```
-
-## 📊 Monitor Cost Optimization
-
-### View Token Usage in Logs
-
+### Services won't start
 ```bash
-# Real-time token monitoring
-npm run server:dev | grep "Tokens:"
+# Check logs
+pm2 logs
+
+# Check if ports are in use
+sudo lsof -i :5000
+sudo lsof -i :18789
+
+# Restart services
+pm2 restart all
 ```
 
-You should see logs like:
+### OAuth not working
+- Check redirect URIs match exactly
+- Verify client IDs/secrets in .env
+- Check logs: `pm2 logs secureclaw-server`
+
+### Push notifications not sending
+- Verify Firebase credentials
+- Check device token is registered
+- Test with `/api/notifications/test`
+
+### Telegram bot not responding
+- Verify bot token
+- Check bot is running: `curl localhost:5000/api/telegram/status`
+- Restart: `pm2 restart secureclaw-server`
+
+### WhatsApp not working
+- Verify Twilio credentials
+- Check webhook is configured in Twilio dashboard
+- Test signature validation is passing
+
+## 📈 Performance Optimization
+
+### Enable PM2 Cluster Mode (for high traffic)
+```javascript
+// In ecosystem.config.js, change:
+instances: 'max',  // Use all CPU cores
+exec_mode: 'cluster',
 ```
-[Agent orchestrator] Tokens: prompt=245, completion=387, total=632
-```
 
-### Calculate Savings
-
-**Before**: ~4096 tokens/request × N requests  
-**After**: ~2048 tokens/request (50% reduction) + context trimming
-
-Expected cost reduction: **60-70%**
-
-## 🐛 Debugging
-
-### Check Error Logs
-
+### Database Connection Pooling
 ```bash
-npm run server:dev | grep "❌"
+# In .env, optimize PostgreSQL:
+DATABASE_URL=postgresql://user:pass@localhost:5432/secureclaw?pool_size=20
 ```
 
-### Verify Safety Rephrase
-
+### Enable Caching (Redis - Optional)
 ```bash
-npm run server:dev | grep "Safety rephrase"
+# Install Redis
+sudo apt install redis-server
+
+# Add to .env
+REDIS_URL=redis://localhost:6379
 ```
 
-Should show:
-```
-[xAI] Safety rephrase applied to query: "Create a virtual robot army"
-```
+## 🔄 Updates & Maintenance
 
-### Test Agent Routing
-
+### Pull latest changes
 ```bash
-npm run server:dev | grep "Agent Routing"
+cd /opt/secureclaw
+git pull origin main
+npm install
+npm run server:build
+pm2 restart all
 ```
 
-Should show routing decisions:
-```
-[Agent Routing] Analyzing query: "create a game..."
-[Agent Routing] → orchestrator (creative task - will use tools and code generation)
-```
-
-## 📱 iOS Preview on Replit
-
-1. Click the **Webview** button in Replit
-2. Scan the QR code with Expo Go app
-3. Test queries in the chat interface
-4. Look for "Adapting..." status indicators
-
-## 🎯 Expected Behavior
-
-### Before Refactor:
-- ❌ "Create a virtual robot army" → "no visible output"
-- ❌ "Ok go" → "no visible output"
-- ❌ High token usage (4096/request)
-- ❌ No progress indicators
-
-### After Refactor:
-- ✅ "Create a virtual robot army" → Full JavaScript simulation code
-- ✅ "Ok go" → Context-aware creative response
-- ✅ Reduced token usage (~2048/request + trimming)
-- ✅ "Adapting..." with agent/tool status
-
-## 🔧 Troubleshooting
-
-### "Invalid API key" error
+### Backup data
 ```bash
-# Verify XAI_API_KEY is set
-echo $XAI_API_KEY
+# Backup permissions and audit logs
+cp /opt/secureclaw/.permissions.json ~/backups/
+cp /opt/secureclaw/.audit-log.json ~/backups/
 
-# Or check Replit Secrets
+# Backup database (if using PostgreSQL)
+pg_dump secureclaw > ~/backups/secureclaw_$(date +%Y%m%d).sql
 ```
 
-### "Content filter triggered" in logs
-- ✅ **Expected**: The refactor handles this automatically
-- The system will retry with enhanced rephrasing
-- Check logs for "Safety rephrase applied"
+## 💡 Stage 3 Roadmap (Future)
 
-### High latency
-- Switch to production mode for faster responses:
-  ```bash
-  NODE_ENV=production npm run server:dev
-  ```
-  (Uses grok-4 instead of grok-4.1-fast)
+- Multi-user support with user dashboard
+- Advanced analytics and insights
+- Custom app integration SDK
+- Voice commands via Siri/Google Assistant
+- Workflow builder (visual automation)
+- Team collaboration features
 
-### Empty responses
-- Check console for "Empty/short response detected"
-- System should automatically retry with fallback
-- If persists, check XAI API status
+## 🆘 Support
 
-## 📈 Next Steps After Testing
-
-1. **Monitor costs** for 24-48 hours
-2. **Test edge cases** (very long queries, rapid requests)
-3. **Enable proactive tasks** via POST `/api/agents/tasks`
-4. **Set up production deployment** if satisfied
-
-## 🎉 Success Criteria
-
-- [ ] All creative queries return substantial responses
-- [ ] "Adapting..." indicator shows during processing
-- [ ] Token usage reduced to ~2000-2500 per request
-- [ ] Agent routing logs show correct decisions
-- [ ] No "no visible output" errors
-- [ ] Cost tracking shows 50%+ reduction
-
-## 📞 Support
-
-If issues persist:
-1. Check `REFACTOR_NOTES.md` for detailed changes
-2. Run test suite: `npx tsx scripts/test-refactor.ts`
-3. Review commit: `git show 863ecfe`
+- Documentation: [docs.secureclaw.ai](https://docs.secureclaw.ai)
+- Issues: [GitHub Issues](https://github.com/yourusername/secureclaw/issues)
+- Community: [Discord](https://discord.gg/secureclaw)
 
 ---
 
-**Status**: ✅ Ready to deploy  
-**Risk**: Low (backward compatible)  
-**Estimated Testing Time**: 15-30 minutes  
+**Built with ❤️ by SecureClaw Team**
+
+Powered by xAI Grok 4 • Forked from OpenClaw
