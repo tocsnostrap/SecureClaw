@@ -56,7 +56,7 @@ export async function runHealthCheck(service: string, endpoint?: string): Promis
         };
         
       case 'grok':
-        // Check Grok API
+        // Check Grok API availability WITHOUT making an expensive API call
         if (!process.env.XAI_API_KEY) {
           return {
             service,
@@ -67,25 +67,50 @@ export async function runHealthCheck(service: string, endpoint?: string): Promis
           };
         }
         
-        // Ping Grok with minimal request
+        // Lightweight check: verify API key format and endpoint reachability
         try {
-          await callGrok([{ role: 'user', content: 'ping' }]);
+          const response = await fetch('https://api.x.ai/v1/models', {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${process.env.XAI_API_KEY}`,
+            },
+            signal: AbortSignal.timeout(5000),
+          });
+          
           const latency = Date.now() - startTime;
           
-          return {
-            service,
-            status: 'healthy',
-            latency,
-            lastCheck: Date.now(),
-            message: 'Grok API responding',
-          };
+          if (response.ok) {
+            return {
+              service,
+              status: 'healthy',
+              latency,
+              lastCheck: Date.now(),
+              message: 'xAI API reachable',
+            };
+          } else if (response.status === 401) {
+            return {
+              service,
+              status: 'down',
+              latency,
+              lastCheck: Date.now(),
+              message: 'Invalid API key',
+            };
+          } else {
+            return {
+              service,
+              status: 'degraded',
+              latency,
+              lastCheck: Date.now(),
+              message: `xAI API returned ${response.status}`,
+            };
+          }
         } catch (error: any) {
           return {
             service,
             status: 'down',
             latency: Date.now() - startTime,
             lastCheck: Date.now(),
-            message: `Grok error: ${error.message}`,
+            message: `xAI unreachable: ${error.message}`,
           };
         }
         

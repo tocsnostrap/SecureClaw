@@ -263,6 +263,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Autonomous loop status
+  app.get("/api/autonomous/status", async (_req: Request, res: Response) => {
+    try {
+      const { getLoopStatus, areLoopsRunning } = await import("../src/core/autonomous_loops");
+      res.json({
+        running: areLoopsRunning(),
+        loops: getLoopStatus(),
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/health", async (_req: Request, res: Response) => {
     // Verify all systems are loaded
     const systems: Record<string, boolean> = {

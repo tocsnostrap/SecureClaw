@@ -290,6 +290,25 @@ function setupErrorHandler(app: express.Application) {
     },
     () => {
       log(`express server serving on port ${port}`);
+      
+      // Start autonomous loops if enabled (opt-in via env var)
+      if (process.env.ENABLE_AUTONOMOUS_LOOPS === 'true') {
+        import("../src/core/autonomous_loops").then(({ startAutonomousLoops }) => {
+          // Delay startup by 30 seconds to let other systems initialize
+          setTimeout(() => {
+            startAutonomousLoops({
+              enableLearning: process.env.ENABLE_LEARNING !== 'false',
+              enableMonitoring: process.env.ENABLE_MONITORING !== 'false',
+              enablePrediction: process.env.ENABLE_PREDICTION !== 'false',
+              enableEvolution: process.env.ENABLE_EVOLUTION === 'true', // Off by default
+            });
+          }, 30000);
+        }).catch((err) => {
+          console.error("[Server] Failed to start autonomous loops:", err.message);
+        });
+      } else {
+        log("[Server] Autonomous loops disabled. Set ENABLE_AUTONOMOUS_LOOPS=true to enable.");
+      }
     },
   );
 })();
