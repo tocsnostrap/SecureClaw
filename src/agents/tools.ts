@@ -2,6 +2,8 @@ import { tool } from "ai";
 import { z } from "zod";
 import { logAction, isToolAllowed } from "./audit-log";
 import { webSearch as browserWebSearch, scrapeUrl as browserScrapeUrl } from "../skills/browser_skill";
+import { linkApp, executeTask, getSupportedApps } from "../integrations";
+import { grantPermission, getAllPermissions } from "../permissions";
 
 export const agentTools = {
   web_search: tool({
@@ -369,6 +371,103 @@ export const agentTools = {
           error: error.message,
           timestamp: new Date().toISOString(),
           realBrowser: false,
+        };
+      }
+    },
+  }),
+
+  link_app: tool({
+    description: "LINK APP - Connect Instagram, Email, Twitter, etc. for employee-like task execution. Grant permissions and store credentials securely.",
+    parameters: z.object({
+      app: z.enum(['instagram', 'email', 'twitter', 'calendar']).describe("App to link"),
+      username: z.string().optional().describe("Username/email for the app"),
+      password: z.string().optional().describe("Password or API key"),
+      userId: z.string().default('default_user').describe("User ID"),
+      userName: z.string().optional().default('friend').describe("User's name for personalization"),
+    }),
+    execute: async ({ app, username, password, userId, userName }) => {
+      logAction({
+        agent: "orchestrator",
+        action: "link_app",
+        tool: "link_app",
+        input: `${app} for ${userId}`,
+        output: null,
+        status: "executed",
+        requiresConsent: true,
+        userId: userId,
+      });
+      
+      console.log(`[AGI Tool] 🔗 Linking ${app} for ${userId}`);
+      
+      try {
+        const credentials: any = {};
+        if (username) credentials.username = username;
+        if (password) credentials.password = password;
+        
+        const result = await linkApp(userId, app, credentials, password ? 'password' : 'api_key');
+        
+        return {
+          success: result.success,
+          app,
+          message: result.humanMessage || result.message,
+          timestamp: new Date().toISOString(),
+        };
+      } catch (error: any) {
+        console.error(`[AGI Tool] ❌ Link app error:`, error.message);
+        return {
+          success: false,
+          app,
+          error: error.message,
+          message: `Oops, ${userName}, couldn't link ${app}: ${error.message}`,
+          timestamp: new Date().toISOString(),
+        };
+      }
+    },
+  }),
+
+  execute_app_task: tool({
+    description: "EXECUTE APP TASK - Employee-like task execution. Post to Instagram, send emails, tweet, etc. Requires app to be linked first.",
+    parameters: z.object({
+      app: z.enum(['instagram', 'email', 'twitter', 'calendar']).describe("App to use"),
+      action: z.string().describe("Action to perform (e.g., 'post_photo', 'send_email', 'post_tweet')"),
+      parameters: z.any().describe("Action parameters (e.g., {imageUrl, caption} for Instagram post)"),
+      userId: z.string().default('default_user').describe("User ID"),
+      userName: z.string().optional().default('friend').describe("User's name"),
+    }),
+    execute: async ({ app, action, parameters, userId, userName }) => {
+      logAction({
+        agent: "orchestrator",
+        action: "execute_app_task",
+        tool: "execute_app_task",
+        input: `${app}.${action}`,
+        output: null,
+        status: "executed",
+        requiresConsent: true,
+        userId: userId,
+      });
+      
+      console.log(`[AGI Tool] 🎯 Executing ${app}.${action}`);
+      
+      try {
+        const result = await executeTask(userId, app, action, parameters, userName);
+        
+        return {
+          success: result.success,
+          app,
+          action,
+          message: result.humanMessage || result.message,
+          data: result.data,
+          timestamp: new Date().toISOString(),
+        };
+      } catch (error: any) {
+        console.error(`[AGI Tool] ❌ Task execution error:`, error.message);
+        return {
+          success: false,
+          app,
+          action,
+          error: error.message,
+          message: `${userName}, task failed: ${error.message}`,
+          timestamp: new Date().toISOString(),
         };
       }
     },
