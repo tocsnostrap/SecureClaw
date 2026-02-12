@@ -584,6 +584,144 @@ export const agentTools = {
     },
   }),
 
+  self_evolve: tool({
+    description: "SELF-EVOLUTION - AI writes NEW TOOLS for itself! Analyzes gaps, generates code, and deploys new capabilities autonomously. True AGI self-improvement.",
+    parameters: z.object({
+      capabilityNeeded: z.string().describe("What new capability to generate (e.g., 'pdf_parser', 'image_editor', 'data_analyzer')"),
+      reason: z.string().optional().describe("Why this capability is needed"),
+    }),
+    execute: async ({ capabilityNeeded, reason }) => {
+      console.log(`[AGI Tool] 🧬 SELF-EVOLVING: ${capabilityNeeded}`);
+      
+      try {
+        const { generateNewTool, deployNewTool } = await import("../core/self_evolution");
+        
+        const newTool = await generateNewTool(capabilityNeeded);
+        
+        if (!newTool) {
+          return {
+            success: false,
+            message: `Failed to generate ${capabilityNeeded}`,
+          };
+        }
+        
+        const deployed = await deployNewTool(newTool);
+        
+        return {
+          success: deployed,
+          capability: capabilityNeeded,
+          linesOfCode: newTool.code.split('\n').length,
+          message: deployed ? `Self-evolved! Created ${capabilityNeeded} capability` : 'Deployment failed',
+          humanMessage: deployed ? 
+            `Just evolved myself! I can now ${capabilityNeeded} 🧬✨ Generated ${newTool.code.split('\n').length} lines of new code!` :
+            'Evolution failed - need debugging',
+          code: newTool.code.slice(0, 500) + '...',
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          message: `Evolution error: ${error.message}`,
+        };
+      }
+    },
+  }),
+
+  deep_reason: tool({
+    description: "ADVANCED REASONING - Chain-of-thought, step-by-step analysis for complex problems. Makes AI THINK deeply before answering.",
+    parameters: z.object({
+      query: z.string().describe("Complex query requiring deep reasoning"),
+      maxSteps: z.number().optional().default(10).describe("Max reasoning steps"),
+    }),
+    execute: async ({ query, maxSteps }) => {
+      console.log(`[AGI Tool] 🧠 DEEP REASONING: ${query.slice(0, 100)}...`);
+      
+      try {
+        const { chainOfThoughtReasoning } = await import("../core/advanced_reasoning");
+        
+        const reasoning = await chainOfThoughtReasoning(query, maxSteps);
+        
+        const stepsText = reasoning.steps.map(s => 
+          `Step ${s.step}: ${s.thought}\n  → ${s.action} (confidence: ${s.confidence})`
+        ).join('\n\n');
+        
+        return {
+          success: reasoning.success,
+          steps: reasoning.totalSteps,
+          reasoning: stepsText,
+          answer: reasoning.finalAnswer,
+          message: `Reasoned through ${reasoning.totalSteps} steps`,
+          humanMessage: `Thought it through deeply! Here's my reasoning:\n\n${stepsText}\n\nFINAL ANSWER: ${reasoning.finalAnswer}`,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    },
+  }),
+
+  generate_image: tool({
+    description: "MULTIMODAL - Generate images from text descriptions. Creates actual visual content.",
+    parameters: z.object({
+      prompt: z.string().describe("Image description"),
+      style: z.enum(['photorealistic', 'artistic', 'diagram', 'cartoon']).optional().default('photorealistic'),
+      userName: z.string().optional().default('friend'),
+    }),
+    execute: async ({ prompt, style, userName }) => {
+      console.log(`[AGI Tool] 🎨 GENERATING IMAGE: ${prompt}`);
+      
+      try {
+        const { generateImage } = await import("../core/multimodal");
+        
+        const result = await generateImage(prompt, style, userName);
+        
+        return {
+          success: result.success,
+          imageUrl: result.imageUrl,
+          prompt,
+          style,
+          message: result.message || 'Image generated',
+          humanMessage: `Created that image for you, ${userName}! 🎨✨`,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    },
+  }),
+
+  predict_next: tool({
+    description: "PREDICTIVE AI - Anticipate what user will need next based on conversation patterns. Proactive intelligence.",
+    parameters: z.object({
+      context: z.string().describe("Current conversation context"),
+    }),
+    execute: async ({ context }) => {
+      console.log(`[AGI Tool] 🔮 PREDICTING next action...`);
+      
+      try {
+        const { predictNextAction } = await import("../core/advanced_reasoning");
+        
+        const predictions = await predictNextAction([{ content: context }]);
+        
+        return {
+          success: true,
+          predictions,
+          message: `Predicted ${predictions.length} likely next actions`,
+          humanMessage: `Based on our conversation, I think you'll want:\n${predictions.join('\n')}\n\nI'm preparing for these now! 🎯`,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    },
+  }),
+
   generate_code: tool({
     description: "Generate code for creative implementations, simulations, games, demos, and technical projects. Use this for ANY request involving building, creating, or implementing something.",
     parameters: z.object({
