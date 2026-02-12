@@ -39,3 +39,8 @@ yarn-error.*
 .vercel
 
 .env
+
+# openclaw integration - ignore node_modules but keep skills
+openclaw-integration/**/node_modules
+openclaw-integration/**/.git
+.browser_lock.json
