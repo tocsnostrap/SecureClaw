@@ -2,7 +2,7 @@ import { generateText, streamText, stepCountIs } from "ai";
 import { createXai } from "@ai-sdk/xai";
 import { z } from "zod";
 import { agentTools, ToolName } from "./tools";
-import { logAction } from "./audit-log";
+import { logAction, isToolAllowed } from "./audit-log";
 
 const xai = createXai({ apiKey: process.env.XAI_API_KEY || "" });
 // Use full model for autonomous operation - we need maximum capability
@@ -232,8 +232,10 @@ function getAgentTools(role: AgentRole) {
   const config = AGENT_CONFIGS[role];
   const selectedTools: Record<string, any> = {};
   for (const toolName of config.tools) {
-    if (agentTools[toolName]) {
+    if (agentTools[toolName] && isToolAllowed(toolName)) {
       selectedTools[toolName] = agentTools[toolName];
+    } else if (agentTools[toolName] && !isToolAllowed(toolName)) {
+      console.warn(`[Agent ${role}] Tool "${toolName}" not in allowlist, skipping`);
     }
   }
   return selectedTools;

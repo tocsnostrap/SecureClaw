@@ -116,8 +116,22 @@ export function clearAuditLog(): void {
   writeState({ log: [], counter: 0 });
 }
 
+// Tool allowlist - all registered tools that can be used by agents
+// Update this when adding new tools to tools.ts
 export const TOOL_ALLOWLIST = new Set([
   "web_search",
+  "browser_scrape",
+  "link_app",
+  "execute_app_task",
+  "monitor_system",
+  "get_help",
+  "self_evolve",
+  "deep_reason",
+  "generate_image",
+  "predict_next",
+  "agent_swarm",
+  "execute_code",
+  "optimize_performance",
   "summarize",
   "schedule_task",
   "send_notification",
@@ -127,6 +141,7 @@ export const TOOL_ALLOWLIST = new Set([
   "calculate",
   "translate",
   "set_reminder",
+  "generate_code",
 ]);
 
 export function isToolAllowed(tool: string): boolean {
