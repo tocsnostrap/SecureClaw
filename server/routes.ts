@@ -268,30 +268,121 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/config", (_req: Request, res: Response) => {
     res.json({
       name: "SecureClaw",
-      version: "1.0.0",
+      version: "2.0.0",
       security: {
         dmPolicy: "pairing",
         sandboxMode: "all",
         biometricAuth: true,
-        encryption: "TLS1.3",
+        encryption: "AES-256-CBC + TLS1.3",
         auditLog: true,
       },
       ai: {
         provider: "xAI",
         model: "grok-4",
         available: !!process.env.XAI_API_KEY,
+        autonomy: "AGI-tier",
+        features: ["browser-automation", "app-integrations", "self-learning"],
       },
       agents: {
-        orchestrator: { enabled: true, proactive: true },
+        orchestrator: { enabled: true, proactive: true, autonomy: "full" },
         scheduler: { enabled: true, proactive: true },
         research: { enabled: true, proactive: false },
         device: { enabled: true, proactive: false },
       },
       toolAllowlist: [
-        "web_search", "summarize", "schedule_task", "send_notification",
-        "get_weather", "get_time", "read_rss", "calculate", "translate", "set_reminder",
+        "web_search", "browser_scrape", "link_app", "execute_app_task",
+        "summarize", "schedule_task", "send_notification",
+        "get_weather", "get_time", "read_rss", "calculate", "translate", "set_reminder", "generate_code",
       ],
+      capabilities: {
+        browserAutomation: true,
+        appIntegrations: true,
+        employeeTasks: true,
+        statusMonitoring: true,
+        helpWiki: true,
+        credits: true,
+      },
     });
+  });
+
+  // MULTI-PAGE DASHBOARD APIs
+
+  // Status/Monitor page
+  app.get("/api/dashboard/status", async (_req: Request, res: Response) => {
+    try {
+      const { runAllHealthChecks, getFormattedUptime } = await import("../src/monitoring");
+      const status = await runAllHealthChecks();
+      
+      res.json({
+        ...status,
+        uptimeFormatted: getFormattedUptime(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Permissions page
+  app.get("/api/dashboard/permissions", async (req: Request, res: Response) => {
+    try {
+      const userId = (req.query.userId as string) || 'default_user';
+      const { getAllPermissions } = await import("../src/permissions");
+      
+      const permissions = getAllPermissions(userId);
+      
+      res.json({ permissions, userId });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // App Links page
+  app.get("/api/dashboard/apps", async (_req: Request, res: Response) => {
+    try {
+      const { getSupportedApps } = await import("../src/integrations");
+      
+      const apps = getSupportedApps();
+      
+      res.json({ apps });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Help/Wiki page
+  app.get("/api/dashboard/help", async (req: Request, res: Response) => {
+    try {
+      const query = req.query.q as string || '';
+      const { searchWiki, getCategories, TUTORIALS, FAQS, COMMANDS } = await import("../src/help_wiki");
+      
+      if (query) {
+        const results = await searchWiki(query);
+        res.json(results);
+      } else {
+        res.json({
+          categories: getCategories(),
+          tutorials: TUTORIALS,
+          faqs: FAQS,
+          commands: COMMANDS,
+        });
+      }
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Credits page
+  app.get("/api/dashboard/credits", async (req: Request, res: Response) => {
+    try {
+      const userId = (req.query.userId as string) || 'default_user';
+      const { getCreditStatus } = await import("../src/credits");
+      
+      const status = getCreditStatus(userId);
+      
+      res.json({ credits: status });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
   });
 
   const httpServer = createServer(app);
