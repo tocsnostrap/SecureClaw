@@ -71,7 +71,7 @@ export const agentTools = {
   }),
 
   summarize: tool({
-    description: "Summarize a block of text into key points",
+    description: "Summarize a block of text into key points using AI",
     inputSchema: z.object({
       text: z.string().describe("The text to summarize"),
       style: z
@@ -91,11 +91,34 @@ export const agentTools = {
         requiresConsent: false,
         userId: null,
       });
-      return {
-        summary: `Summary (${style}): ${text.slice(0, 200)}...`,
-        wordCount: text.split(/\s+/).length,
-        style,
-      };
+      
+      try {
+        const { callGrok } = await import("./providers/xai");
+        const styleInstructions: Record<string, string> = {
+          brief: "Provide a concise 2-3 sentence summary.",
+          detailed: "Provide a thorough summary covering all key points in multiple paragraphs.",
+          bullets: "Provide a bullet-point summary with the key takeaways.",
+        };
+        
+        const summary = await callGrok([
+          { role: "system", content: `You are a summarization assistant. ${styleInstructions[style]}` },
+          { role: "user", content: `Summarize the following text:\n\n${text.slice(0, 8000)}` },
+        ]);
+        
+        return {
+          summary,
+          wordCount: text.split(/\s+/).length,
+          style,
+        };
+      } catch (error: any) {
+        // Fallback to basic truncation if AI is unavailable
+        return {
+          summary: `Summary (${style}): ${text.slice(0, 500)}...`,
+          wordCount: text.split(/\s+/).length,
+          style,
+          note: `AI summarization unavailable: ${error.message}`,
+        };
+      }
     },
   }),
 
@@ -174,7 +197,7 @@ export const agentTools = {
   }),
 
   get_weather: tool({
-    description: "Get current weather for a location",
+    description: "Get current weather for a location using wttr.in",
     inputSchema: z.object({
       location: z.string().describe("City or location name"),
     }),
@@ -189,14 +212,51 @@ export const agentTools = {
         requiresConsent: false,
         userId: null,
       });
-      return {
-        location,
-        temperature: "22°C",
-        conditions: "Partly Cloudy",
-        humidity: "45%",
-        note: "In production, connects to a weather API",
-        timestamp: new Date().toISOString(),
-      };
+      
+      try {
+        // wttr.in is a free weather API that requires no API key
+        const encodedLocation = encodeURIComponent(location);
+        const response = await fetch(`https://wttr.in/${encodedLocation}?format=j1`, {
+          headers: { "User-Agent": "SecureClaw/1.0" },
+          signal: AbortSignal.timeout(10000),
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Weather API returned ${response.status}`);
+        }
+        
+        const data = await response.json() as any;
+        const current = data.current_condition?.[0];
+        const area = data.nearest_area?.[0];
+        
+        if (!current) {
+          throw new Error("No weather data available");
+        }
+        
+        return {
+          location: area?.areaName?.[0]?.value || location,
+          region: area?.region?.[0]?.value || "",
+          country: area?.country?.[0]?.value || "",
+          temperature: `${current.temp_C}°C / ${current.temp_F}°F`,
+          feelsLike: `${current.FeelsLikeC}°C / ${current.FeelsLikeF}°F`,
+          conditions: current.weatherDesc?.[0]?.value || "Unknown",
+          humidity: `${current.humidity}%`,
+          windSpeed: `${current.windspeedKmph} km/h`,
+          windDirection: current.winddir16Point || "",
+          visibility: `${current.visibility} km`,
+          uvIndex: current.uvIndex || "N/A",
+          timestamp: new Date().toISOString(),
+        };
+      } catch (error: any) {
+        return {
+          location,
+          temperature: "N/A",
+          conditions: "Unable to fetch",
+          humidity: "N/A",
+          error: error.message,
+          timestamp: new Date().toISOString(),
+        };
+      }
     },
   }),
 
@@ -217,7 +277,7 @@ export const agentTools = {
   }),
 
   read_rss: tool({
-    description: "Read and parse an RSS feed for latest updates",
+    description: "Read and parse a real RSS feed for latest updates",
     inputSchema: z.object({
       url: z.string().describe("RSS feed URL"),
       limit: z.number().optional().default(5).describe("Number of items to return"),
@@ -233,19 +293,35 @@ export const agentTools = {
         requiresConsent: false,
         userId: null,
       });
-      return {
-        feed: url,
-        items: [
-          {
-            title: "Latest update",
-            link: url,
-            pubDate: new Date().toISOString(),
-            description: "Feed content would appear here in production",
-          },
-        ],
-        limit,
-        note: "In production, fetches and parses actual RSS XML",
-      };
+      
+      try {
+        const RssParser = (await import("rss-parser")).default;
+        const parser = new RssParser({ timeout: 10000 });
+        const feed = await parser.parseURL(url);
+        
+        const items = (feed.items || []).slice(0, limit).map((item) => ({
+          title: item.title || "Untitled",
+          link: item.link || url,
+          pubDate: item.pubDate || item.isoDate || new Date().toISOString(),
+          description: (item.contentSnippet || item.content || "").slice(0, 300),
+          creator: item.creator || item.author || "",
+        }));
+        
+        return {
+          feed: feed.title || url,
+          feedDescription: feed.description || "",
+          items,
+          total: feed.items?.length || 0,
+          limit,
+        };
+      } catch (error: any) {
+        return {
+          feed: url,
+          items: [],
+          error: error.message,
+          note: `Failed to parse RSS feed: ${error.message}`,
+        };
+      }
     },
   }),
 
@@ -296,11 +372,11 @@ export const agentTools = {
   }),
 
   translate: tool({
-    description: "Translate text between languages",
+    description: "Translate text between languages using AI",
     inputSchema: z.object({
       text: z.string().describe("Text to translate"),
       from: z.string().optional().default("auto").describe("Source language"),
-      to: z.string().describe("Target language"),
+      to: z.string().describe("Target language (e.g. 'Spanish', 'French', 'Japanese')"),
     }),
     execute: async ({ text, from, to }) => {
       logAction({
@@ -313,13 +389,31 @@ export const agentTools = {
         requiresConsent: false,
         userId: null,
       });
-      return {
-        original: text,
-        from,
-        to,
-        translated: `[Translation of "${text}" to ${to} would appear here]`,
-        note: "In production, connects to a translation API",
-      };
+      
+      try {
+        const { callGrok } = await import("./providers/xai");
+        const fromLang = from === "auto" ? "the detected language" : from;
+        
+        const translated = await callGrok([
+          { role: "system", content: `You are a translation assistant. Translate the following text from ${fromLang} to ${to}. Return ONLY the translated text, nothing else.` },
+          { role: "user", content: text },
+        ]);
+        
+        return {
+          original: text,
+          from,
+          to,
+          translated: translated.trim(),
+        };
+      } catch (error: any) {
+        return {
+          original: text,
+          from,
+          to,
+          translated: `[Translation failed: ${error.message}]`,
+          error: error.message,
+        };
+      }
     },
   }),
 
@@ -847,7 +941,7 @@ export const agentTools = {
   }),
 
   generate_code: tool({
-    description: "Generate code for creative implementations, simulations, games, demos, and technical projects. Use this for ANY request involving building, creating, or implementing something.",
+    description: "Generate code using AI for creative implementations, simulations, games, demos, and technical projects. Use this for ANY request involving building, creating, or implementing something.",
     inputSchema: z.object({
       description: z.string().describe("Detailed description of what to create"),
       language: z.enum(["javascript", "python", "html", "typescript", "jsx", "react"]).optional().default("javascript").describe("Programming language"),
@@ -866,187 +960,57 @@ export const agentTools = {
         userId: null,
       });
 
-      // Generate appropriate code based on the request
-      let code = "";
-      let explanation = "";
+      try {
+        const { callGrok } = await import("./providers/xai");
+        
+        const testInstructions = includeTests
+          ? "\n\nAlso include a comprehensive test section at the end with at least 3 test cases."
+          : "";
+        
+        const codeResponse = await callGrok([
+          {
+            role: "system",
+            content: `You are an expert ${language} developer. Generate complete, working, production-quality ${style} code. Return ONLY the code with comments - no markdown fences, no explanations outside the code. The code should be self-contained and runnable.`,
+          },
+          {
+            role: "user",
+            content: `Create a ${style} ${language} implementation for: ${description}
 
-      if (description.toLowerCase().includes("robot") || description.toLowerCase().includes("army")) {
-        code = `// Virtual Robot Army Simulation
-class Robot {
-  constructor(id, x, y) {
-    this.id = id;
-    this.x = x;
-    this.y = y;
-    this.energy = 100;
-    this.state = 'idle';
-  }
-
-  move(dx, dy) {
-    this.x += dx;
-    this.y += dy;
-    this.energy -= 1;
-    console.log(\`Robot \${this.id} moved to (\${this.x}, \${this.y})\`);
-  }
-
-  attack(target) {
-    if (this.energy > 20) {
-      console.log(\`Robot \${this.id} attacks \${target}!\`);
-      this.energy -= 20;
-      return true;
-    }
-    return false;
-  }
-
-  recharge() {
-    this.energy = Math.min(100, this.energy + 25);
-    console.log(\`Robot \${this.id} recharged to \${this.energy}%\`);
-  }
-}
-
-class RobotArmy {
-  constructor(size) {
-    this.robots = [];
-    for (let i = 0; i < size; i++) {
-      this.robots.push(new Robot(i, Math.random() * 100, Math.random() * 100));
-    }
-    console.log(\`Army created with \${size} robots!\`);
-  }
-
-  deployAll() {
-    console.log('Deploying army...');
-    this.robots.forEach(robot => {
-      robot.state = 'active';
-      robot.move(Math.random() * 10 - 5, Math.random() * 10 - 5);
-    });
-  }
-
-  status() {
-    const stats = {
-      total: this.robots.length,
-      active: this.robots.filter(r => r.state === 'active').length,
-      avgEnergy: this.robots.reduce((sum, r) => sum + r.energy, 0) / this.robots.length
-    };
-    console.log('Army Status:', stats);
-    return stats;
-  }
-
-  formationAttack(target) {
-    console.log(\`Coordinated attack on \${target}!\`);
-    this.robots.forEach((robot, i) => {
-      setTimeout(() => robot.attack(target), i * 100);
-    });
-  }
-}
-
-// Initialize and run
-const army = new RobotArmy(10);
-army.deployAll();
-setTimeout(() => army.status(), 500);
-setTimeout(() => army.formationAttack('Enemy Base'), 1000);
-
-// Export for use in other modules
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { Robot, RobotArmy };
-}`;
-        explanation = "Created a virtual robot army simulation with Robot and RobotArmy classes. Features: movement, energy management, attack coordination, and status tracking. Run in Node.js or browser console!";
-      } else if (description.toLowerCase().includes("game")) {
-        code = `// Interactive Game Framework
-class Game {
-  constructor(name) {
-    this.name = name;
-    this.score = 0;
-    this.level = 1;
-    this.running = false;
-    console.log(\`Game "\${name}" initialized!\`);
-  }
-
-  start() {
-    this.running = true;
-    this.score = 0;
-    console.log('Game started!');
-    this.gameLoop();
-  }
-
-  gameLoop() {
-    if (!this.running) return;
-    
-    // Simulate game tick
-    this.score += this.level * 10;
-    console.log(\`Level \${this.level} - Score: \${this.score}\`);
-    
-    if (this.score % 100 === 0) {
-      this.levelUp();
-    }
-    
-    setTimeout(() => this.gameLoop(), 1000);
-  }
-
-  levelUp() {
-    this.level++;
-    console.log(\`🎉 Level Up! Now at level \${this.level}\`);
-  }
-
-  stop() {
-    this.running = false;
-    console.log(\`Game Over! Final Score: \${this.score}\`);
-  }
-}
-
-// Initialize
-const game = new Game("${description}");
-game.start();
-
-// Stop after 10 seconds (remove for continuous play)
-setTimeout(() => game.stop(), 10000);`;
-        explanation = "Created an interactive game framework with score tracking, levels, and a game loop. Customize the gameLoop() method for your specific game mechanics!";
-      } else {
-        // Generic code generation
-        code = `// Generated Code: ${description}
-// Language: ${language}, Style: ${style}
-
-class Implementation {
-  constructor() {
-    this.initialized = false;
-    console.log('Implementation created');
-  }
-
-  initialize() {
-    this.initialized = true;
-    console.log('System initialized');
-    return this;
-  }
-
-  execute() {
-    if (!this.initialized) {
-      throw new Error('Must initialize first');
-    }
-    console.log('Executing: ${description}');
-    return { success: true, timestamp: Date.now() };
-  }
-}
-
-// Usage
-const impl = new Implementation();
-impl.initialize();
-const result = impl.execute();
-console.log('Result:', result);`;
-        explanation = `Generated ${style} ${language} implementation for: ${description}. Customize the execute() method with your specific logic.`;
+Requirements:
+- Complete, working implementation (not stubs)
+- Proper error handling
+- Clear comments explaining key sections
+- ${style} style: ${style === 'game' ? 'game loop, scoring, levels' : style === 'simulation' ? 'physics, entities, time steps' : style === 'visualization' ? 'canvas/SVG rendering, animation' : 'clean architecture, reusable'}${testInstructions}`,
+          },
+        ]);
+        
+        // Clean up response - remove markdown fences if present
+        let code = codeResponse.trim();
+        if (code.startsWith("```")) {
+          code = code.replace(/^```\w*\n?/, "").replace(/\n?```$/, "");
+        }
+        
+        return {
+          code,
+          language,
+          style,
+          explanation: `AI-generated ${style} ${language} implementation for: ${description}`,
+          linesOfCode: code.split("\n").length,
+          timestamp: new Date().toISOString(),
+        };
+      } catch (error: any) {
+        // Fallback to a basic template if AI is unavailable
+        const code = `// Generated Code: ${description}\n// Language: ${language}, Style: ${style}\n// Note: AI generation unavailable (${error.message}), using template\n\nconsole.log('Implementation for: ${description}');\nconsole.log('TODO: Add your ${language} code here');`;
+        
+        return {
+          code,
+          language,
+          style,
+          explanation: `Template generated (AI unavailable: ${error.message})`,
+          linesOfCode: code.split("\n").length,
+          timestamp: new Date().toISOString(),
+        };
       }
-
-      if (includeTests) {
-        code += `\n\n// Tests
-console.log('Running tests...');
-// Add your test cases here`;
-      }
-
-      return {
-        code,
-        language,
-        style,
-        explanation,
-        linesOfCode: code.split('\n').length,
-        timestamp: new Date().toISOString(),
-      };
     },
   }),
 };
