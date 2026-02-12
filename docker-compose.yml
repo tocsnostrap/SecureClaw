@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  secureclaw:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: secureclaw
+    restart: unless-stopped
+    ports:
+      - "5000:5000"   # API Server
+      - "18789:18789" # WebSocket Gateway
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - GATEWAY_PORT=18789
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+      - ./certs:/app/certs
+      - ./.permissions.json:/app/.permissions.json
+      - ./.audit-log.json:/app/.audit-log.json
+    networks:
+      - secureclaw-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: PostgreSQL database
+  postgres:
+    image: postgres:16-alpine
+    container_name: secureclaw-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=secureclaw
+      - POSTGRES_PASSWORD=${DATABASE_PASSWORD:-changeme}
+      - POSTGRES_DB=secureclaw
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - secureclaw-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U secureclaw"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  secureclaw-network:
+    driver: bridge
+
+volumes:
+  postgres-data:

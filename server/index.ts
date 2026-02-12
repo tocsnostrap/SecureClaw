@@ -37,6 +37,23 @@ passport.deserializeUser((user: any, done) => {
 import { configurePassport } from "../src/integrations/oauth_passport";
 configurePassport();
 
+// Initialize push notifications
+import { initializeFirebase } from "../src/notifications/push";
+initializeFirebase();
+
+// Initialize messaging integrations
+import { initializeTelegramBot } from "../src/messaging/telegram";
+initializeTelegramBot();
+
+import { initializeTwilio } from "../src/messaging/whatsapp";
+initializeTwilio();
+
+// Start autonomous background tasks
+import { startCronTasks } from "../src/cron/autonomous-tasks";
+if (process.env.NODE_ENV === 'production' || process.env.ENABLE_CRON === 'true') {
+  startCronTasks();
+}
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
