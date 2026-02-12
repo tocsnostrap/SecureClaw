@@ -1,11 +1,41 @@
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
+import session from "express-session";
+import passport from "passport";
 import { registerRoutes } from "./routes";
 import * as fs from "fs";
 import * as path from "path";
 
 const app = express();
 const log = console.log;
+
+// Configure sessions for OAuth
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'secureclaw_session_secret_change_in_production',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+  },
+}));
+
+// Initialize Passport
+app.use(passport.initialize());
+app.use(passport.session());
+
+passport.serializeUser((user: any, done) => {
+  done(null, user);
+});
+
+passport.deserializeUser((user: any, done) => {
+  done(null, user);
+});
+
+// Configure OAuth strategies
+import { configurePassport } from "../src/integrations/oauth_passport";
+configurePassport();
 
 declare module "http" {
   interface IncomingMessage {

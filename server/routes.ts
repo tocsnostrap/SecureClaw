@@ -429,41 +429,214 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // OAuth callback
-  app.get("/api/oauth/callback", async (req: Request, res: Response) => {
-    try {
-      const code = req.query.code as string;
-      const state = req.query.state as string;
-      
-      if (!code || !state) {
-        return res.status(400).json({ error: 'Missing code or state' });
+  // PASSPORT OAUTH ROUTES
+
+  // Instagram OAuth
+  app.get("/api/oauth/instagram",
+    passport.authenticate('instagram', {
+      scope: ['user_profile', 'user_media', 'instagram_basic', 'instagram_content_publish'],
+    })
+  );
+
+  app.get("/api/oauth/callback/instagram",
+    passport.authenticate('instagram', { failureRedirect: '/oauth-error' }),
+    async (req: Request, res: Response) => {
+      try {
+        const user = req.user as any;
+        const userId = (req.query.userId as string) || 'default_user';
+        
+        // Store token with encryption
+        await grantPermission(
+          userId,
+          'instagram',
+          {
+            accessToken: user.accessToken,
+            refreshToken: user.refreshToken,
+            expiresAt: Date.now() + 3600000, // 1 hour
+            profile: user.profile,
+          },
+          ['user_profile', 'user_media', 'instagram_content_publish'],
+          { email: user.profile?.email, linkedAt: Date.now() }
+        );
+        
+        console.log(`[Passport OAuth] ✅ Instagram linked for ${userId}`);
+        
+        res.send(`
+          <html>
+            <head>
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Instagram Connected</title>
+            </head>
+            <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; text-align: center; padding: 60px 20px; background: linear-gradient(135deg, #0D1117 0%, #161B22 100%); color: #fff; margin: 0;">
+              <div style="max-width: 400px; margin: 0 auto; background: rgba(255,255,255,0.05); border-radius: 20px; padding: 40px; backdrop-filter: blur(10px); border: 1px solid rgba(0,217,166,0.2);">
+                <div style="font-size: 64px; margin-bottom: 20px;">✅</div>
+                <h1 style="color: #00D9A6; margin: 0 0 10px 0; font-size: 28px;">Instagram Connected!</h1>
+                <p style="color: rgba(255,255,255,0.7); margin: 0 0 30px 0; font-size: 16px;">All set, Scot! I can now post and manage your Instagram 🎉</p>
+                <p style="color: rgba(255,255,255,0.5); font-size: 14px;">Close this window and return to SecureClaw</p>
+              </div>
+              <script>
+                // Auto-close after 3 seconds
+                setTimeout(() => {
+                  window.close();
+                  // If can't close (not opened by script), redirect
+                  setTimeout(() => {
+                    window.location.href = '/';
+                  }, 1000);
+                }, 3000);
+              </script>
+            </body>
+          </html>
+        `);
+      } catch (error: any) {
+        console.error(`[Passport OAuth] ❌ Instagram callback error:`, error.message);
+        res.status(500).send(`Error: ${error.message}`);
       }
-      
-      const { completeOAuthFlow } = await import("../src/integrations/oauth");
-      
-      const result = await completeOAuthFlow(code, state);
-      
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-      
-      // Success - redirect to success page or app
-      res.send(`
-        <html>
-          <head><title>OAuth Success</title></head>
-          <body style="font-family: system-ui; text-align: center; padding: 40px; background: #0D1117; color: #fff;">
-            <h1 style="color: #00D9A6;">✅ ${result.app} Connected!</h1>
-            <p>Successfully linked your ${result.app} account.</p>
-            <p>You can close this window and return to SecureClaw.</p>
-            <script>
-              setTimeout(() => window.close(), 3000);
-            </script>
-          </body>
-        </html>
-      `);
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
     }
+  );
+
+  // Gmail OAuth
+  app.get("/api/oauth/google",
+    passport.authenticate('google', {
+      scope: [
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/gmail.send',
+        'https://www.googleapis.com/auth/gmail.modify',
+        'email',
+        'profile',
+      ],
+      accessType: 'offline',
+      prompt: 'consent',
+    })
+  );
+
+  app.get("/api/oauth/callback/google",
+    passport.authenticate('google', { failureRedirect: '/oauth-error' }),
+    async (req: Request, res: Response) => {
+      try {
+        const user = req.user as any;
+        const userId = (req.query.userId as string) || 'default_user';
+        
+        await grantPermission(
+          userId,
+          'gmail',
+          {
+            accessToken: user.accessToken,
+            refreshToken: user.refreshToken,
+            expiresAt: Date.now() + 3600000,
+            profile: user.profile,
+            email: user.email,
+          },
+          ['gmail.readonly', 'gmail.send', 'gmail.modify'],
+          { email: user.email, linkedAt: Date.now() }
+        );
+        
+        console.log(`[Passport OAuth] ✅ Gmail linked for ${userId}`);
+        
+        res.send(`
+          <html>
+            <head>
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Gmail Connected</title>
+            </head>
+            <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; text-align: center; padding: 60px 20px; background: linear-gradient(135deg, #0D1117 0%, #161B22 100%); color: #fff; margin: 0;">
+              <div style="max-width: 400px; margin: 0 auto; background: rgba(255,255,255,0.05); border-radius: 20px; padding: 40px; backdrop-filter: blur(10px); border: 1px solid rgba(0,217,166,0.2);">
+                <div style="font-size: 64px; margin-bottom: 20px;">✅</div>
+                <h1 style="color: #00D9A6; margin: 0 0 10px 0; font-size: 28px;">Gmail Connected!</h1>
+                <p style="color: rgba(255,255,255,0.7); margin: 0 0 30px 0; font-size: 16px;">Perfect! I can now scan and send emails for you, Scot! 📧</p>
+                <p style="color: rgba(255,255,255,0.5); font-size: 14px;">Close this window and return to SecureClaw</p>
+              </div>
+              <script>
+                setTimeout(() => {
+                  window.close();
+                  setTimeout(() => window.location.href = '/', 1000);
+                }, 3000);
+              </script>
+            </body>
+          </html>
+        `);
+      } catch (error: any) {
+        console.error(`[Passport OAuth] ❌ Gmail callback error:`, error.message);
+        res.status(500).send(`Error: ${error.message}`);
+      }
+    }
+  );
+
+  // Twitter OAuth
+  app.get("/api/oauth/twitter",
+    passport.authenticate('twitter', {
+      scope: ['tweet.read', 'tweet.write', 'users.read', 'offline.access'],
+    })
+  );
+
+  app.get("/api/oauth/callback/twitter",
+    passport.authenticate('twitter', { failureRedirect: '/oauth-error' }),
+    async (req: Request, res: Response) => {
+      try {
+        const user = req.user as any;
+        const userId = (req.query.userId as string) || 'default_user';
+        
+        await grantPermission(
+          userId,
+          'twitter',
+          {
+            accessToken: user.accessToken,
+            refreshToken: user.refreshToken,
+            expiresAt: Date.now() + 7200000, // 2 hours
+            profile: user.profile,
+          },
+          ['tweet.read', 'tweet.write', 'users.read'],
+          { linkedAt: Date.now() }
+        );
+        
+        console.log(`[Passport OAuth] ✅ Twitter linked for ${userId}`);
+        
+        res.send(`
+          <html>
+            <head>
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Twitter Connected</title>
+            </head>
+            <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; text-align: center; padding: 60px 20px; background: linear-gradient(135deg, #0D1117 0%, #161B22 100%); color: #fff; margin: 0;">
+              <div style="max-width: 400px; margin: 0 auto; background: rgba(255,255,255,0.05); border-radius: 20px; padding: 40px; backdrop-filter: blur(10px); border: 1px solid rgba(0,217,166,0.2);">
+                <div style="font-size: 64px; margin-bottom: 20px;">✅</div>
+                <h1 style="color: #00D9A6; margin: 0 0 10px 0; font-size: 28px;">Twitter Connected!</h1>
+                <p style="color: rgba(255,255,255,0.7); margin: 0 0 30px 0; font-size: 16px;">Awesome! I can now tweet and manage your timeline, Scot! 🐦</p>
+                <p style="color: rgba(255,255,255,0.5); font-size: 14px;">Close this window and return to SecureClaw</p>
+              </div>
+              <script>
+                setTimeout(() => {
+                  window.close();
+                  setTimeout(() => window.location.href = '/', 1000);
+                }, 3000);
+              </script>
+            </body>
+          </html>
+        `);
+      } catch (error: any) {
+        console.error(`[Passport OAuth] ❌ Twitter callback error:`, error.message);
+        res.status(500).send(`Error: ${error.message}`);
+      }
+    }
+  );
+
+  // OAuth error page
+  app.get("/oauth-error", (req: Request, res: Response) => {
+    res.send(`
+      <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>OAuth Error</title>
+        </head>
+        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; text-align: center; padding: 60px 20px; background: linear-gradient(135deg, #0D1117 0%, #161B22 100%); color: #fff; margin: 0;">
+          <div style="max-width: 400px; margin: 0 auto; background: rgba(255,255,255,0.05); border-radius: 20px; padding: 40px; backdrop-filter: blur(10px); border: 1px solid rgba(239,68,68,0.3);">
+            <div style="font-size: 64px; margin-bottom: 20px;">❌</div>
+            <h1 style="color: #EF4444; margin: 0 0 10px 0; font-size: 28px;">OAuth Failed</h1>
+            <p style="color: rgba(255,255,255,0.7); margin: 0 0 30px 0; font-size: 16px;">Something went wrong. Try again!</p>
+            <button onclick="window.close()" style="background: #00D9A6; color: #0D1117; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;">Close</button>
+          </div>
+        </body>
+      </html>
+    `);
   });
 
   const httpServer = createServer(app);
