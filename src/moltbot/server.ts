@@ -1,7 +1,7 @@
 /**
  * MOLTBOT - Server
  * 
- * Clean Express API. Give it a goal, get back results.
+ * Clean Express API with web UI. Give it a goal, get results.
  */
 
 import express from 'express';
@@ -12,8 +12,7 @@ import { createProviderFromEnv } from './providers';
 import { listTools } from './tools';
 import { getDb, getTask, getUserTasks, getMemoryStats, searchMemories, getRecentMemories } from './db';
 
-// Import tools to register them
-import './tools';
+import './tools'; // Register all tools
 
 let agent: MoltbotAgent | null = null;
 
@@ -23,37 +22,51 @@ function getAgent(): MoltbotAgent {
     agent = new MoltbotAgent(llm, {
       verbose: process.env.MOLTBOT_VERBOSE !== 'false',
     });
-    console.log(`[Moltbot] Agent ready (provider: ${llm.name})`);
+    console.log(`[Moltbot] Agent ready (${llm.name}) | ${listTools().length} tools`);
   }
   return agent;
 }
 
 export function createMoltbotServer(): express.Application {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '1mb' }));
 
-  // CORS for Replit
-  app.use((req, res, next) => {
+  // CORS
+  app.use((_req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
-    if (req.method === 'OPTIONS') return res.sendStatus(200);
+    res.header('Access-Control-Allow-Headers', 'Content-Type');
+    if (_req.method === 'OPTIONS') return res.sendStatus(200);
     next();
   });
 
-  // ── Web UI ──────────────────────────────────────────────────────
+  // R8: Rate limiting (simple in-memory)
+  const rateLimits = new Map<string, { count: number; reset: number }>();
+  app.use('/api', (req, res, next) => {
+    const ip = req.ip || 'unknown';
+    const now = Date.now();
+    const entry = rateLimits.get(ip);
+    if (entry && now < entry.reset) {
+      if (entry.count >= 30) {
+        return res.status(429).json({ error: 'Rate limit exceeded. Try again in a minute.' });
+      }
+      entry.count++;
+    } else {
+      rateLimits.set(ip, { count: 1, reset: now + 60_000 });
+    }
+    next();
+  });
+
+  // ── UI ──────────────────────────────────────────────────────────
   app.get('/', (_req, res) => {
-    const uiPath = path.join(__dirname, 'ui.html');
-    // In dev (tsx), __dirname points to source. In prod, might be different.
-    if (fs.existsSync(uiPath)) {
-      return res.sendFile(uiPath);
+    const paths = [
+      path.join(__dirname, 'ui.html'),
+      path.join(process.cwd(), 'src', 'moltbot', 'ui.html'),
+    ];
+    for (const p of paths) {
+      if (fs.existsSync(p)) return res.sendFile(p);
     }
-    // Fallback: try from workspace root
-    const altPath = path.join(process.cwd(), 'src', 'moltbot', 'ui.html');
-    if (fs.existsSync(altPath)) {
-      return res.sendFile(altPath);
-    }
-    res.send('<h1>Moltbot</h1><p>UI file not found. Use the API at /api/task and /api/chat</p>');
+    res.send('<h1>Moltbot</h1><p>UI not found</p>');
   });
 
   // ── Health ──────────────────────────────────────────────────────
@@ -62,35 +75,32 @@ export function createMoltbotServer(): express.Application {
     res.json({
       status: 'ok',
       agent: 'moltbot',
-      provider: agent?.['llm']?.name || 'not initialized',
+      version: '1.0.0',
+      provider: agent?.providerName || 'not initialized',
       tools: listTools().length,
       ...stats,
-      uptime: process.uptime(),
+      uptime: Math.round(process.uptime()),
     });
   });
 
   // ── Run a task ──────────────────────────────────────────────────
   app.post('/api/task', async (req, res) => {
     const { goal, context, userId } = req.body;
-
-    if (!goal || typeof goal !== 'string') {
-      return res.status(400).json({ error: 'Missing "goal" in request body' });
+    if (!goal || typeof goal !== 'string' || goal.trim().length < 2) {
+      return res.status(400).json({ error: 'Provide a "goal" (min 2 characters)' });
     }
 
     try {
       const a = getAgent();
       const task = await a.run(goal, { userId: userId || 'default', context });
-
       res.json({
         id: task.id,
         status: task.status,
         result: task.result,
         error: task.error,
         steps: task.plan.map(s => ({
-          action: s.action,
-          tool: s.tool,
-          status: s.status,
-          output: s.output ? JSON.stringify(s.output).slice(0, 200) : null,
+          action: s.action, tool: s.tool, status: s.status,
+          output: s.output ? JSON.stringify(s.output).slice(0, 300) : null,
           error: s.error,
         })),
         tokensUsed: task.tokensUsed,
@@ -101,39 +111,42 @@ export function createMoltbotServer(): express.Application {
     }
   });
 
-  // ── Chat (simple question/answer, no task planning) ─────────────
+  // ── Chat ────────────────────────────────────────────────────────
   app.post('/api/chat', async (req, res) => {
     const { message, userId } = req.body;
-
     if (!message || typeof message !== 'string') {
-      return res.status(400).json({ error: 'Missing "message" in request body' });
+      return res.status(400).json({ error: 'Provide a "message"' });
     }
 
     try {
       const a = getAgent();
-
-      // Check if this looks like a task or just a question
       const isTask = looksLikeTask(message);
 
       if (isTask) {
-        // Run as autonomous task
         const task = await a.run(message, { userId: userId || 'default' });
         return res.json({
           response: task.result || task.error || 'Task completed',
           taskId: task.id,
           status: task.status,
           autonomous: true,
+          steps: task.plan.map(s => ({
+            action: s.action, tool: s.tool, status: s.status,
+            output: s.output ? JSON.stringify(s.output).slice(0, 300) : null,
+            error: s.error,
+          })),
+          tokensUsed: task.tokensUsed,
+          durationMs: (task.completedAt || Date.now()) - task.startedAt,
         });
       }
 
       // Simple chat
       const memories = searchMemories(userId || 'default', message, { limit: 3 });
       const context = memories.length > 0
-        ? `\nRelevant memory: ${memories.map((m: any) => m.content).join('; ')}`
+        ? `\nYou remember: ${memories.map((m: any) => m.content).join('; ')}`
         : '';
 
       const response = await a.chat([
-        { role: 'system', content: `You are Moltbot, an autonomous AI agent. You have tools for web search, browsing, code execution, file operations, and more. If the user asks you to DO something (not just answer a question), tell them you'll run it as a task.${context}` },
+        { role: 'system', content: `You are Moltbot, an autonomous AI agent. You can search the web, run code, read/write files, make API calls, and more. If the user asks you to DO something complex, suggest they switch to Task mode. Be concise, helpful, and direct.${context}` },
         { role: 'user', content: message },
       ]);
 
@@ -147,27 +160,25 @@ export function createMoltbotServer(): express.Application {
     }
   });
 
-  // ── Get task status ─────────────────────────────────────────────
+  // ── Task details ────────────────────────────────────────────────
   app.get('/api/task/:id', (req, res) => {
     const task = getTask(req.params.id);
     if (!task) return res.status(404).json({ error: 'Task not found' });
     res.json(task);
   });
 
-  // ── List user tasks ─────────────────────────────────────────────
+  // ── Task list ───────────────────────────────────────────────────
   app.get('/api/tasks', (req, res) => {
     const userId = (req.query.userId as string) || 'default';
     const tasks = getUserTasks(userId, 50);
     res.json({ tasks });
   });
 
-  // ── List available tools ────────────────────────────────────────
+  // ── Tools ───────────────────────────────────────────────────────
   app.get('/api/tools', (_req, res) => {
     res.json({
       tools: listTools().map(t => ({
-        name: t.name,
-        description: t.description,
-        parameters: t.parameters,
+        name: t.name, description: t.description, parameters: t.parameters,
       })),
     });
   });
@@ -176,27 +187,45 @@ export function createMoltbotServer(): express.Application {
   app.get('/api/memory', (req, res) => {
     const userId = (req.query.userId as string) || 'default';
     const query = req.query.q as string;
-
     if (query) {
-      const results = searchMemories(userId, query, { limit: 20 });
-      return res.json({ results });
+      return res.json({ results: searchMemories(userId, query, { limit: 20 }) });
     }
+    res.json({
+      learnings: getRecentMemories(userId, 'learning', 20),
+      recentTasks: getRecentMemories(userId, 'task', 10),
+    });
+  });
 
-    const recent = getRecentMemories(userId, 'learning', 20);
-    const tasks = getRecentMemories(userId, 'task', 10);
-    res.json({ learnings: recent, recentTasks: tasks });
+  // R9: Debug endpoint
+  app.get('/api/debug', (_req, res) => {
+    res.json({
+      env: {
+        hasAnthropic: !!process.env.ANTHROPIC_API_KEY,
+        hasOpenAI: !!process.env.OPENAI_API_KEY,
+        hasXAI: !!process.env.XAI_API_KEY,
+        hasOllama: !!process.env.OLLAMA_MODEL,
+        nodeVersion: process.version,
+        platform: process.platform,
+      },
+      agent: {
+        initialized: !!agent,
+        provider: agent?.providerName || 'none',
+        toolCount: listTools().length,
+      },
+      db: getMemoryStats(),
+    });
   });
 
   return app;
 }
 
-/**
- * Detect if a message is a task (do something) vs a question (answer something)
- */
+// R6: Better task detection
 function looksLikeTask(msg: string): boolean {
   const l = msg.toLowerCase().trim();
 
-  // Imperative verbs = task
+  // Short messages are usually chat
+  if (l.length < 10 && !l.match(/^(search|find|get|check|run|read)/)) return false;
+
   const taskPatterns = [
     /^(search|find|look up|google)\b/,
     /^(create|build|write|generate|make)\b/,
@@ -207,23 +236,23 @@ function looksLikeTask(msg: string): boolean {
     /^(analyze|summarize|review|compare)\b/,
     /^(scrape|crawl|extract)\b/,
     /^(schedule|remind|automate)\b/,
-    /^(read|open|browse)\b.*\b(file|url|http|www)/,
+    /^(read|open|browse)\b.*\b(file|url|http|www|rss|feed)/,
     /^(calculate|compute|solve)\b/,
+    /^(list|show)\b.*\b(files|directory)/,
+    /\b(weather|forecast)\b.*\b(in|for|at)\b/,
+    /\b(news|headlines|latest)\b.*\b(about|on|for)\b/,
   ];
 
   return taskPatterns.some(p => p.test(l));
 }
 
-// ── Standalone server ────────────────────────────────────────────────
+// ── Standalone ──────────────────────────────────────────────────────
 if (require.main === module || process.argv.includes('--moltbot')) {
   const app = createMoltbotServer();
   const port = parseInt(process.env.PORT || '5000', 10);
 
   app.listen(port, '0.0.0.0', () => {
     console.log(`\n  Moltbot running on http://localhost:${port}`);
-    console.log(`  POST /api/task   { "goal": "..." }  - Run autonomous task`);
-    console.log(`  POST /api/chat   { "message": "..." }  - Chat`);
-    console.log(`  GET  /api/health                    - Status`);
-    console.log(`  GET  /api/tools                     - Available tools\n`);
+    console.log(`  ${listTools().length} tools loaded\n`);
   });
 }

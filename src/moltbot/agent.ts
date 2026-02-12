@@ -8,11 +8,19 @@
  * and learns from every task for next time.
  */
 
-import type { LLMProvider, LLMMessage, Task, TaskStep, Observation, MoltbotConfig, DEFAULT_CONFIG } from './types';
+import type { LLMProvider, LLMMessage, Task, TaskStep, Observation, MoltbotConfig } from './types';
 import { toolDescriptions, executeTool, listTools } from './tools';
 import { saveTask, saveMemory, searchMemories, getRecentMemories } from './db';
 
 let taskCounter = 0;
+
+// R9: Event emitter for real-time step updates
+type StepListener = (task: Task, step: TaskStep, event: string) => void;
+const stepListeners: StepListener[] = [];
+export function onStepUpdate(fn: StepListener) { stepListeners.push(fn); }
+function emitStep(task: Task, step: TaskStep, event: string) {
+  stepListeners.forEach(fn => { try { fn(task, step, event); } catch {} });
+}
 
 export class MoltbotAgent {
   private llm: LLMProvider;
@@ -30,16 +38,22 @@ export class MoltbotAgent {
     };
   }
 
+  // R5: Expose provider name
+  get providerName(): string { return this.llm.name; }
+
   /**
    * RUN A TASK AUTONOMOUSLY
-   * 
-   * This is the main entry point. Give it a goal, it does the rest.
    */
   async run(goal: string, options: { userId?: string; context?: string } = {}): Promise<Task> {
     const userId = options.userId || 'default';
+
+    // R8: Input validation
+    if (!goal || goal.trim().length < 2) throw new Error('Goal is too short');
+    if (goal.length > 5000) throw new Error('Goal is too long (max 5000 chars)');
+
     const task: Task = {
       id: `task_${Date.now()}_${++taskCounter}`,
-      goal,
+      goal: goal.trim(),
       context: options.context || '',
       userId,
       status: 'pending',
@@ -55,7 +69,7 @@ export class MoltbotAgent {
     };
 
     this.log(`\n========================================`);
-    this.log(`MOLTBOT TASK: ${goal}`);
+    this.log(`TASK: ${goal}`);
     this.log(`========================================`);
 
     const deadline = Date.now() + this.config.taskTimeoutMs;
@@ -63,106 +77,124 @@ export class MoltbotAgent {
     try {
       // ── PHASE 1: PLAN ──────────────────────────────────────────
       task.status = 'planning';
+      saveTask(task);
       const relevantMemories = this.getRelevantContext(userId, goal);
       task.plan = await this.plan(task, relevantMemories);
       saveTask(task);
 
       // ── PHASE 2: EXECUTE LOOP ──────────────────────────────────
       task.status = 'executing';
+      saveTask(task);
 
       while (task.currentStep < task.plan.length) {
-        // Timeout check
         if (Date.now() > deadline) {
-          task.error = 'Task timed out';
+          task.error = `Task timed out after ${Math.round(this.config.taskTimeoutMs / 1000)}s`;
           task.status = 'failed';
           break;
         }
 
         const step = task.plan[task.currentStep];
         this.log(`\n── Step ${step.index + 1}/${task.plan.length}: ${step.action}`);
-
-        // Execute the step
         step.status = 'running';
         step.startedAt = Date.now();
+        emitStep(task, step, 'start');
 
         if (step.tool) {
-          // Tool execution
-          this.log(`   Tool: ${step.tool}(${JSON.stringify(step.args).slice(0, 100)})`);
-          const result = await executeTool(step.tool, step.args);
+          // R1: Validate tool exists before executing
+          const toolExists = listTools().some(t => t.name === step.tool);
+          if (!toolExists) {
+            step.error = `Unknown tool "${step.tool}"`;
+            step.status = 'failed';
+            step.completedAt = Date.now();
+            this.observe(task, step.index, 'error', step.error);
+            this.log(`   SKIP: ${step.error}`);
+            task.currentStep++;
+            continue;
+          }
+
+          // R6: Inject previous step results into args
+          const resolvedArgs = this.resolveArgs(step.args, task);
+
+          this.log(`   Tool: ${step.tool}(${JSON.stringify(resolvedArgs).slice(0, 100)})`);
+          const result = await executeTool(step.tool, resolvedArgs);
           step.completedAt = Date.now();
 
           if (result.success) {
             step.status = 'success';
             step.output = result.data;
             const obs = this.observe(task, step.index, 'result',
-              `${step.tool} succeeded: ${JSON.stringify(result.data).slice(0, 300)}`);
-            this.log(`   OK: ${obs.content.slice(0, 150)}`);
+              `${step.tool} succeeded: ${this.summarizeOutput(result.data)}`);
+            this.log(`   OK (${step.completedAt - (step.startedAt || step.completedAt)}ms)`);
+            emitStep(task, step, 'success');
           } else {
             step.error = result.error || 'Unknown error';
             step.retries++;
 
-            // Retry?
             if (step.retries <= this.config.maxRetries) {
               this.log(`   RETRY ${step.retries}/${this.config.maxRetries}: ${step.error}`);
               this.observe(task, step.index, 'error', `Retry ${step.retries}: ${step.error}`);
-              continue; // Don't advance, try again
+              emitStep(task, step, 'retry');
+              // R1: Exponential backoff between retries
+              await this.sleep(1000 * Math.pow(2, step.retries - 1));
+              continue;
             }
 
             step.status = 'failed';
-            this.observe(task, step.index, 'error', `FAILED after ${step.retries} retries: ${step.error}`);
+            this.observe(task, step.index, 'error', `FAILED: ${step.error}`);
             this.log(`   FAILED: ${step.error}`);
+            emitStep(task, step, 'failed');
 
-            // ── PHASE 3: ADAPT (re-plan if needed) ───────────────
+            // ── PHASE 3: ADAPT ───────────────────────────────────
             if (task.replans < this.config.maxReplans) {
-              this.log(`\n   Adapting... (replan ${task.replans + 1}/${this.config.maxReplans})`);
+              this.log(`   Adapting... (replan ${task.replans + 1}/${this.config.maxReplans})`);
               task.status = 'replanning';
               task.replans++;
 
-              const newPlan = await this.replan(task);
-              if (newPlan.length > 0) {
-                // Replace remaining steps with new plan
-                task.plan = [
-                  ...task.plan.slice(0, task.currentStep + 1),
-                  ...newPlan,
-                ];
-                this.log(`   New plan: ${newPlan.length} steps`);
-                task.status = 'executing';
+              try {
+                const newPlan = await this.replan(task);
+                if (newPlan.length > 0) {
+                  task.plan = [...task.plan.slice(0, task.currentStep + 1), ...newPlan];
+                  this.log(`   New plan: ${newPlan.length} steps`);
+                  task.status = 'executing';
+                }
+              } catch (replanErr: any) {
+                this.log(`   Replan failed: ${replanErr.message}`);
               }
             }
           }
         } else {
-          // Reasoning-only step (no tool)
+          // Reasoning-only step
           step.status = 'success';
           step.completedAt = Date.now();
           this.observe(task, step.index, 'info', `Reasoning: ${step.action}`);
-          this.log(`   (reasoning step)`);
+          emitStep(task, step, 'success');
         }
 
         task.currentStep++;
         saveTask(task);
       }
 
-      // ── PHASE 4: SYNTHESIZE RESULT ─────────────────────────────
+      // ── PHASE 4: SYNTHESIZE ────────────────────────────────────
       if (task.status !== 'failed') {
         task.result = await this.synthesize(task);
         task.status = 'completed';
-        this.log(`\n RESULT: ${task.result?.slice(0, 200)}`);
+        this.log(`\nRESULT: ${task.result?.slice(0, 300)}`);
       }
 
     } catch (err: any) {
       task.error = err.message;
       task.status = 'failed';
-      this.log(`\n TASK FAILED: ${err.message}`);
+      this.log(`\nTASK FAILED: ${err.message}`);
     }
 
     task.completedAt = Date.now();
     saveTask(task);
 
     // ── PHASE 5: LEARN ───────────────────────────────────────────
-    await this.learnFromTask(task);
+    this.learnFromTask(task);
 
     const duration = ((task.completedAt - task.startedAt) / 1000).toFixed(1);
-    this.log(`\n Task ${task.status} in ${duration}s (${task.tokensUsed} tokens)`);
+    this.log(`\nTask ${task.status} in ${duration}s | ${task.tokensUsed} tokens | ${task.plan.length} steps`);
     this.log(`========================================\n`);
 
     return task;
@@ -172,145 +204,131 @@ export class MoltbotAgent {
    * PLAN: Break goal into executable steps
    */
   private async plan(task: Task, context: string): Promise<TaskStep[]> {
-    const prompt = `You are an autonomous agent. Break this goal into concrete executable steps.
+    const tools = listTools();
+    const toolList = tools.map(t => `- ${t.name}: ${t.description}`).join('\n');
+
+    const prompt = `You are Moltbot, an autonomous AI agent. Break this goal into concrete steps.
 
 GOAL: ${task.goal}
 ${task.context ? `CONTEXT: ${task.context}` : ''}
-${context ? `\nRELEVANT MEMORY:\n${context}` : ''}
+${context ? `\nMEMORY:\n${context}` : ''}
 
-AVAILABLE TOOLS:
-${toolDescriptions()}
+TOOLS:
+${toolList}
 
 RULES:
-- Each step must use exactly one tool, or be a reasoning step (tool: null)
-- Use REAL tool names and REAL argument values
-- Keep it to 2-8 steps. Don't over-plan.
-- The last step should verify or summarize the result.
+- Each step uses one tool OR is a reasoning step (tool: null)
+- Use real tool names and real argument values
+- 2-8 steps max. Simple goals = fewer steps.
+- You can reference previous step results with {{step_N}} in args (N = step number)
+- Final step should synthesize/verify the result
 
 Return ONLY a JSON array:
-[
-  { "action": "what this step does", "tool": "tool_name", "args": { "key": "value" } },
-  { "action": "reasoning about X", "tool": null, "args": {} }
-]`;
+[{"action": "description", "tool": "name", "args": {"key": "value"}}]`;
 
     const response = await this.chat([
-      { role: 'system', content: 'You are an autonomous task planner. Return ONLY valid JSON arrays. No markdown.' },
+      { role: 'system', content: 'You are a task planner. Return ONLY a valid JSON array. No markdown fences. No explanation.' },
       { role: 'user', content: prompt },
-    ], { temperature: 0.3, jsonMode: false });
+    ], { temperature: 0.2 });
 
     task.tokensUsed += (response.inputTokens || 0) + (response.outputTokens || 0);
 
+    // R1: Robust JSON parsing with repair
     const steps = this.parseSteps(response.content, task.id);
     if (steps.length === 0) {
-      throw new Error('Planner returned no steps');
+      // R1: Retry planning once with explicit instruction
+      this.log('   Plan parse failed, retrying...');
+      const retry = await this.chat([
+        { role: 'system', content: 'Return ONLY a JSON array like: [{"action":"x","tool":"web_search","args":{"query":"y"}}]' },
+        { role: 'user', content: `Plan steps for: ${task.goal}` },
+      ], { temperature: 0.1 });
+      task.tokensUsed += (retry.inputTokens || 0) + (retry.outputTokens || 0);
+
+      const retrySteps = this.parseSteps(retry.content, task.id);
+      if (retrySteps.length === 0) throw new Error('Could not create a valid plan');
+      return retrySteps;
     }
 
     this.log(`Plan: ${steps.length} steps`);
     steps.forEach((s, i) => this.log(`  ${i + 1}. [${s.tool || 'think'}] ${s.action}`));
-
     return steps;
   }
 
   /**
-   * REPLAN: Adjust plan based on what's happened so far
+   * REPLAN: Adjust after failure
    */
   private async replan(task: Task): Promise<TaskStep[]> {
-    const history = task.observations.slice(-10)
-      .map(o => `[${o.type}] Step ${o.stepIndex + 1}: ${o.content}`)
-      .join('\n');
-
-    const completedSteps = task.plan
+    const completed = task.plan
       .filter(s => s.status === 'success')
-      .map(s => `${s.index + 1}. [OK] ${s.action}: ${JSON.stringify(s.output).slice(0, 150)}`)
-      .join('\n');
+      .map(s => `[OK] ${s.action}: ${this.summarizeOutput(s.output)}`).join('\n');
 
-    const failedStep = task.plan[task.currentStep];
+    const failed = task.plan[task.currentStep];
 
-    const prompt = `A step in your plan failed. Create a new plan for the REMAINING work.
+    const prompt = `Your plan failed at a step. Create NEW steps for the remaining work.
 
-ORIGINAL GOAL: ${task.goal}
+GOAL: ${task.goal}
+DONE: ${completed || '(none)'}
+FAILED: ${failed?.action} - ERROR: ${failed?.error}
 
-COMPLETED SO FAR:
-${completedSteps || '(none)'}
-
-FAILED STEP: ${failedStep?.action || 'unknown'}
-ERROR: ${failedStep?.error || 'unknown'}
-
-OBSERVATIONS:
-${history}
-
-AVAILABLE TOOLS:
-${toolDescriptions()}
-
-Create new steps to accomplish what's left. Try a DIFFERENT approach than what failed.
-Return ONLY a JSON array of steps.`;
+Try a DIFFERENT approach. Return ONLY a JSON array of new steps.`;
 
     const response = await this.chat([
-      { role: 'system', content: 'You are replanning after a failure. Return ONLY valid JSON array.' },
+      { role: 'system', content: 'Replan after failure. Return ONLY valid JSON array.' },
       { role: 'user', content: prompt },
-    ], { temperature: 0.5 });
+    ], { temperature: 0.4 });
 
     task.tokensUsed += (response.inputTokens || 0) + (response.outputTokens || 0);
-
     return this.parseSteps(response.content, task.id, task.plan.length);
   }
 
   /**
-   * SYNTHESIZE: Create a final result from everything that happened
+   * SYNTHESIZE: Final result from all step outputs
    */
   private async synthesize(task: Task): Promise<string> {
     const results = task.plan
       .filter(s => s.status === 'success' && s.output)
-      .map(s => `Step "${s.action}": ${JSON.stringify(s.output).slice(0, 400)}`)
+      .map(s => `[${s.tool || 'reasoning'}] ${s.action}: ${this.summarizeOutput(s.output)}`)
       .join('\n\n');
 
-    if (!results) return 'Task completed with no captured results.';
+    if (!results) return 'Task completed but no data was captured.';
 
     const response = await this.chat([
-      { role: 'system', content: 'Synthesize task results into a clear, useful answer. Be direct.' },
-      { role: 'user', content: `GOAL: ${task.goal}\n\nRESULTS:\n${results}\n\nProvide a clear summary of what was accomplished.` },
-    ]);
+      { role: 'system', content: 'You are Moltbot. Synthesize these results into a clear, useful answer. Be direct and thorough. Format nicely with sections if needed.' },
+      { role: 'user', content: `GOAL: ${task.goal}\n\nDATA GATHERED:\n${results}\n\nProvide a comprehensive answer.` },
+    ], { maxTokens: 2000 });
 
     task.tokensUsed += (response.inputTokens || 0) + (response.outputTokens || 0);
     return response.content;
   }
 
   /**
-   * LEARN: Extract patterns from completed tasks
+   * LEARN from task
    */
-  private async learnFromTask(task: Task): Promise<void> {
-    const userId = task.userId;
+  private learnFromTask(task: Task): void {
+    try {
+      const userId = task.userId;
+      const successTools = task.plan.filter(s => s.tool && s.status === 'success').map(s => s.tool);
+      const failedTools = task.plan.filter(s => s.tool && s.status === 'failed');
+      const category = this.categorize(task.goal);
 
-    // Learn from successes
-    if (task.status === 'completed') {
-      const toolChain = task.plan
-        .filter(s => s.tool && s.status === 'success')
-        .map(s => s.tool)
-        .join(' -> ');
-
-      if (toolChain) {
+      if (task.status === 'completed' && successTools.length > 0) {
         saveMemory(userId, 'learning',
-          `For "${this.categorize(task.goal)}" goals, this tool chain works: ${toolChain}`,
-          { goal: task.goal, status: 'completed' }, 0.8);
+          `"${category}" tasks work with: ${successTools.join(' -> ')}`,
+          { goal: task.goal, tools: successTools }, 0.8);
       }
-    }
 
-    // Learn from failures
-    if (task.status === 'failed') {
-      const errors = task.plan
-        .filter(s => s.status === 'failed')
-        .map(s => `${s.tool}: ${s.error}`)
-        .join('; ');
+      if (task.status === 'failed') {
+        const errors = failedTools.map(s => `${s.tool}: ${s.error}`).join('; ');
+        saveMemory(userId, 'learning',
+          `"${category}" tasks fail when: ${errors || task.error}`,
+          { goal: task.goal }, 0.6);
+      }
 
-      saveMemory(userId, 'learning',
-        `"${this.categorize(task.goal)}" tasks can fail: ${errors}`,
-        { goal: task.goal, status: 'failed' }, 0.6);
-    }
-
-    // Remember the task outcome
-    saveMemory(userId, 'task',
-      `${task.status === 'completed' ? 'Completed' : 'Failed'}: ${task.goal} -> ${(task.result || task.error || '').slice(0, 200)}`,
-      { taskId: task.id, status: task.status }, 0.7);
+      // R4: Store richer task outcome
+      saveMemory(userId, 'task',
+        `${task.status}: ${task.goal} | ${task.plan.length} steps, ${successTools.length} succeeded | ${(task.result || task.error || '').slice(0, 300)}`,
+        { taskId: task.id, status: task.status, duration: (task.completedAt || Date.now()) - task.startedAt }, 0.7);
+    } catch { /* don't let learning errors break tasks */ }
   }
 
   /**
@@ -320,68 +338,92 @@ Return ONLY a JSON array of steps.`;
     return this.llm.chat(messages, options);
   }
 
-  /**
-   * Simple goal categorization for learning
-   */
+  // ── Helpers ─────────────────────────────────────────────────────────
+
+  // R6: Replace {{step_N}} placeholders with actual step outputs
+  private resolveArgs(args: Record<string, any>, task: Task): Record<string, any> {
+    const resolved: Record<string, any> = {};
+    for (const [key, value] of Object.entries(args)) {
+      if (typeof value === 'string') {
+        resolved[key] = value.replace(/\{\{step_(\d+)\}\}/g, (_match, num) => {
+          const stepIdx = parseInt(num) - 1;
+          const step = task.plan[stepIdx];
+          if (step?.output) return JSON.stringify(step.output).slice(0, 500);
+          return '(no data)';
+        });
+      } else {
+        resolved[key] = value;
+      }
+    }
+    return resolved;
+  }
+
+  // R5: Smarter output summarization
+  private summarizeOutput(data: any): string {
+    if (!data) return '(empty)';
+    const str = typeof data === 'string' ? data : JSON.stringify(data);
+    if (str.length <= 300) return str;
+    return str.slice(0, 297) + '...';
+  }
+
   private categorize(goal: string): string {
     const l = goal.toLowerCase();
-    if (l.includes('search') || l.includes('find')) return 'search';
-    if (l.includes('create') || l.includes('build') || l.includes('write')) return 'creation';
-    if (l.includes('monitor') || l.includes('watch')) return 'monitoring';
-    if (l.includes('analyze') || l.includes('summarize')) return 'analysis';
-    if (l.includes('code') || l.includes('program')) return 'coding';
+    if (l.match(/search|find|look.?up|google/)) return 'search';
+    if (l.match(/create|build|write|generate|make/)) return 'creation';
+    if (l.match(/monitor|watch|track/)) return 'monitoring';
+    if (l.match(/analy[sz]e|summarize|review|compare/)) return 'analysis';
+    if (l.match(/code|program|script|function/)) return 'coding';
+    if (l.match(/weather|forecast|temperature/)) return 'weather';
+    if (l.match(/calculate|compute|math|solve/)) return 'math';
+    if (l.match(/file|read|write|save|download/)) return 'file_ops';
     return 'general';
   }
 
-  /**
-   * Get relevant context from memory
-   */
   private getRelevantContext(userId: string, goal: string): string {
     try {
-      const memories = searchMemories(userId, goal, { type: 'learning', limit: 3 });
+      const learnings = searchMemories(userId, goal, { type: 'learning', limit: 3 });
       const recent = getRecentMemories(userId, 'task', 3);
-
       const parts: string[] = [];
-      if (memories.length > 0) {
-        parts.push('Learnings: ' + memories.map((m: any) => m.content).join('; '));
-      }
-      if (recent.length > 0) {
-        parts.push('Recent tasks: ' + recent.map((m: any) => m.content).join('; '));
-      }
+      if (learnings.length > 0) parts.push('Learnings: ' + learnings.map((m: any) => m.content).join('; '));
+      if (recent.length > 0) parts.push('Recent: ' + recent.map((m: any) => m.content).join('; '));
       return parts.join('\n');
-    } catch {
-      return '';
-    }
+    } catch { return ''; }
   }
 
-  /**
-   * Record an observation
-   */
   private observe(task: Task, stepIndex: number, type: Observation['type'], content: string): Observation {
     const obs: Observation = { stepIndex, type, content: content.slice(0, 500), timestamp: Date.now() };
     task.observations.push(obs);
     return obs;
   }
 
-  /**
-   * Parse JSON steps from LLM response
-   */
+  // R1: Robust JSON parsing with multiple strategies
   private parseSteps(text: string, taskId: string, startIndex: number = 0): TaskStep[] {
     let parsed: any[] | null = null;
 
-    // Try direct JSON parse
-    try { parsed = JSON.parse(text.trim()); } catch { /* continue */ }
+    // Strategy 1: Direct parse
+    try { parsed = JSON.parse(text.trim()); } catch {}
 
-    // Try extracting from markdown
+    // Strategy 2: Extract from markdown fences
     if (!parsed) {
       const m = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-      if (m) try { parsed = JSON.parse(m[1].trim()); } catch { /* continue */ }
+      if (m) try { parsed = JSON.parse(m[1].trim()); } catch {}
     }
 
-    // Try finding array in text
+    // Strategy 3: Find array in text
     if (!parsed) {
       const m = text.match(/\[[\s\S]*\]/);
-      if (m) try { parsed = JSON.parse(m[0]); } catch { /* continue */ }
+      if (m) try { parsed = JSON.parse(m[0]); } catch {}
+    }
+
+    // Strategy 4: Fix common JSON errors and retry
+    if (!parsed) {
+      const cleaned = text
+        .replace(/^[^[]*/, '')           // Remove leading non-JSON
+        .replace(/[^\]]*$/, '')          // Remove trailing non-JSON
+        .replace(/,\s*([}\]])/g, '$1')   // Remove trailing commas
+        .replace(/'/g, '"')              // Single to double quotes
+        .replace(/(\w+):/g, '"$1":');    // Unquoted keys
+      try { parsed = JSON.parse(cleaned); } catch {}
     }
 
     if (!Array.isArray(parsed)) return [];
@@ -389,9 +431,9 @@ Return ONLY a JSON array of steps.`;
     return parsed.slice(0, this.config.maxSteps).map((s: any, i: number) => ({
       id: `${taskId}_s${startIndex + i}`,
       index: startIndex + i,
-      action: s.action || s.description || `Step ${startIndex + i + 1}`,
-      tool: s.tool || null,
-      args: s.args || s.toolArgs || {},
+      action: String(s.action || s.description || s.step || `Step ${startIndex + i + 1}`).slice(0, 200),
+      tool: s.tool === 'null' ? null : (s.tool || null),
+      args: (typeof s.args === 'object' && s.args !== null) ? s.args : (s.toolArgs || {}),
       status: 'pending' as const,
       output: null,
       error: null,
@@ -399,6 +441,10 @@ Return ONLY a JSON array of steps.`;
       startedAt: null,
       completedAt: null,
     }));
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   private log(msg: string): void {
