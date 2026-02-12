@@ -249,18 +249,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/health", (_req: Request, res: Response) => {
+  app.get("/api/health", async (_req: Request, res: Response) => {
+    // Verify all systems are loaded
+    const systems: Record<string, boolean> = {
+      ai: !!process.env.XAI_API_KEY,
+      agents: true,
+      proactive: true,
+      permissions: false,
+      integrations: false,
+      monitoring: false,
+      helpWiki: false,
+      browserSkills: false,
+      credits: false,
+    };
+    
+    // Try loading each system
+    try { await import("../src/permissions"); systems.permissions = true; } catch (e) { console.error("Permissions load error:", e); }
+    try { await import("../src/integrations"); systems.integrations = true; } catch (e) { console.error("Integrations load error:", e); }
+    try { await import("../src/monitoring"); systems.monitoring = true; } catch (e) { console.error("Monitoring load error:", e); }
+    try { await import("../src/help_wiki"); systems.helpWiki = true; } catch (e) { console.error("Help wiki load error:", e); }
+    try { await import("../src/skills/browser_skill"); systems.browserSkills = true; } catch (e) { console.error("Browser skills load error:", e); }
+    try { await import("../src/credits"); systems.credits = true; } catch (e) { console.error("Credits load error:", e); }
+    
     res.json({
       status: "ok",
       service: "SecureClaw Gateway",
-      ai: !!process.env.XAI_API_KEY ? "configured" : "not configured",
+      systems,
       agents: {
         orchestrator: true,
         scheduler: true,
         research: true,
         device: true,
       },
-      proactive: true,
       timestamp: new Date().toISOString(),
     });
   });
