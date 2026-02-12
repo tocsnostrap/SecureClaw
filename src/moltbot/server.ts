@@ -7,7 +7,7 @@
 import express from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
-import { MoltbotAgent, onStepUpdate } from './agent';
+import { MoltbotAgent, onStepUpdate, stepListeners } from './agent';
 import { createProviderFromEnv } from './providers';
 import { listTools } from './tools';
 import { getDb, getTask, getUserTasks, getMemoryStats, searchMemories, getRecentMemories, saveMemory } from './db';
@@ -178,7 +178,7 @@ export function createMoltbotServer(): express.Application {
         ? `\nYou remember: ${memories.map((m: any) => m.content).join('; ')}`
         : '';
 
-      // Build messages with history
+      // Build messages with history (exclude the message we just added - it goes as the final user message)
       const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
         {
           role: 'system',
@@ -190,13 +190,16 @@ Be concise, helpful, direct. No hedging.${memContext}`,
         },
       ];
 
-      // Add recent conversation history (last 10 turns)
-      const recentHistory = conv.slice(-10);
-      for (const msg of recentHistory) {
+      // Add conversation history EXCLUDING the current message (which is already the last item)
+      const historyWithoutCurrent = conv.slice(-11, -1); // Last 10 before current
+      for (const msg of historyWithoutCurrent) {
         if (msg.role === 'user' || msg.role === 'assistant') {
           messages.push({ role: msg.role as 'user' | 'assistant', content: msg.content });
         }
       }
+
+      // Add current message as the final user turn
+      messages.push({ role: 'user', content: message });
 
       const response = await a.chat(messages);
       addToConversation(userId, 'assistant', response.content);
@@ -229,15 +232,32 @@ Be concise, helpful, direct. No hedging.${memContext}`,
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
 
-    // Listen for step updates
-    const taskId = `pending_${Date.now()}`;
+    // Track which task ID we're listening for (set once task starts)
+    let myTaskId: string | null = null;
+    let listenerRemoved = false;
+
     const listener = (task: any, step: any, event: string) => {
-      if (task.goal !== goal) return; // Only our task
+      // Capture the task ID from the first event
+      if (!myTaskId) myTaskId = task.id;
+      // Only handle our task
+      if (task.id !== myTaskId) return;
       try {
         res.write(`data: ${JSON.stringify({ event, step: { action: step.action, tool: step.tool, status: step.status, index: step.index }, taskId: task.id })}\n\n`);
       } catch {}
     };
     onStepUpdate(listener);
+
+    // Remove listener helper
+    function removeListener() {
+      if (!listenerRemoved) {
+        const idx = (stepListeners as any[]).indexOf(listener);
+        if (idx >= 0) (stepListeners as any[]).splice(idx, 1);
+        listenerRemoved = true;
+      }
+    }
+
+    // Clean up if client disconnects
+    res.on('close', removeListener);
 
     try {
       const a = getAgent();
@@ -257,6 +277,7 @@ Be concise, helpful, direct. No hedging.${memContext}`,
       res.write(`data: ${JSON.stringify({ event: 'error', error: err.message })}\n\n`);
     }
 
+    removeListener();
     res.write('data: [DONE]\n\n');
     res.end();
   });

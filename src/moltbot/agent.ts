@@ -14,9 +14,9 @@ import { saveTask, saveMemory, searchMemories, getRecentMemories } from './db';
 
 let taskCounter = 0;
 
-// R9: Event emitter for real-time step updates
+// Event emitter for real-time step updates
 type StepListener = (task: Task, step: TaskStep, event: string) => void;
-const stepListeners: StepListener[] = [];
+export const stepListeners: StepListener[] = [];
 export function onStepUpdate(fn: StepListener) { stepListeners.push(fn); }
 function emitStep(task: Task, step: TaskStep, event: string) {
   stepListeners.forEach(fn => { try { fn(task, step, event); } catch {} });

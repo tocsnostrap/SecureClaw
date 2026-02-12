@@ -157,7 +157,6 @@ let mode = 'auto';
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');
 const send_btn = document.getElementById('send');
-const empty = document.getElementById('empty');
 let msgCount = 0;
 
 fetch('/api/health').then(r=>r.json()).then(d=>{
@@ -172,7 +171,8 @@ input.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!send_btn.disabled) se
 async function send(){
   const text=input.value.trim();
   if(!text)return;
-  if(empty)empty.remove();
+  const emptyEl = document.getElementById('empty');
+  if(emptyEl) emptyEl.remove();
   addUser(text);
   input.value='';
   send_btn.disabled=true;
@@ -181,26 +181,16 @@ async function send(){
   if(mode==='task'){
     // Stream task execution with real-time step updates
     await streamTask(text);
+  } else if(mode==='chat'){
+    // Pure chat - no task detection
+    await chatMessage(text);
   } else {
-    const thinking=addThinking();
-    try{
-      const endpoint = '/api/chat';
-      const body = {message:text};
-      const res = await fetch(endpoint,{
-        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
-      });
-      const data = await res.json();
-      thinking.remove();
-      if(data.error && !data.result && !data.response){
-        addError(data.error);
-      } else if(data.steps || data.autonomous){
-        addTaskResult(data);
-      } else {
-        addBot(data.response || data.result || 'No response');
-      }
-    }catch(err){
-      thinking.remove();
-      addError('Connection error: '+err.message);
+    // Auto mode: try chat first, it will auto-detect tasks
+    // But use streaming endpoint for task-like messages
+    if(looksLikeTask(text)){
+      await streamTask(text);
+    } else {
+      await chatMessage(text);
     }
   }
   send_btn.disabled=false;
@@ -309,6 +299,36 @@ async function streamTask(goal){
   }catch(err){
     bubble.innerHTML=`<span class="badge failed">Error</span><br>${esc(err.message)}`;
   }
+}
+
+async function chatMessage(text){
+  const thinking=addThinking();
+  try{
+    const res = await fetch('/api/chat',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({message:text})
+    });
+    const data = await res.json();
+    thinking.remove();
+    if(data.error && !data.result && !data.response){
+      addError(data.error);
+    } else if(data.steps || data.autonomous){
+      addTaskResult(data);
+    } else {
+      addBot(data.response || data.result || 'No response');
+    }
+  }catch(err){
+    thinking.remove();
+    addError('Connection error: '+err.message);
+  }
+}
+
+function looksLikeTask(msg){
+  const l=msg.toLowerCase().trim();
+  if(l.length<10) return false;
+  return /^(search|find|get|check|create|build|write|generate|make|monitor|run|execute|analyze|summarize|scrape|calculate|read|list|download)\b/.test(l)
+    || /\b(weather|forecast)\b.*\b(in|for)\b/.test(l)
+    || /\b(news|headlines)\b.*\b(about|for)\b/.test(l);
 }
 
 function addUser(text){
