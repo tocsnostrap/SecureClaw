@@ -5,6 +5,8 @@
  */
 
 import express from 'express';
+import * as path from 'path';
+import * as fs from 'fs';
 import { MoltbotAgent } from './agent';
 import { createProviderFromEnv } from './providers';
 import { listTools } from './tools';
@@ -37,6 +39,21 @@ export function createMoltbotServer(): express.Application {
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
     if (req.method === 'OPTIONS') return res.sendStatus(200);
     next();
+  });
+
+  // ── Web UI ──────────────────────────────────────────────────────
+  app.get('/', (_req, res) => {
+    const uiPath = path.join(__dirname, 'ui.html');
+    // In dev (tsx), __dirname points to source. In prod, might be different.
+    if (fs.existsSync(uiPath)) {
+      return res.sendFile(uiPath);
+    }
+    // Fallback: try from workspace root
+    const altPath = path.join(process.cwd(), 'src', 'moltbot', 'ui.html');
+    if (fs.existsSync(altPath)) {
+      return res.sendFile(altPath);
+    }
+    res.send('<h1>Moltbot</h1><p>UI file not found. Use the API at /api/task and /api/chat</p>');
   });
 
   // ── Health ──────────────────────────────────────────────────────

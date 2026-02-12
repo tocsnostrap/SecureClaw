@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Moltbot</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0a; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
+  
+  header { padding: 16px 20px; border-bottom: 1px solid #1a1a1a; display: flex; align-items: center; gap: 12px; background: #0f0f0f; }
+  header .dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; animation: pulse 2s infinite; }
+  header h1 { font-size: 18px; font-weight: 600; color: #fff; }
+  header .sub { font-size: 12px; color: #666; margin-left: auto; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  .chat { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+  
+  .msg { max-width: 85%; padding: 12px 16px; border-radius: 16px; font-size: 15px; line-height: 1.5; word-wrap: break-word; }
+  .msg.user { align-self: flex-end; background: #1d4ed8; color: #fff; border-bottom-right-radius: 4px; }
+  .msg.bot { align-self: flex-start; background: #1a1a1a; color: #e0e0e0; border-bottom-left-radius: 4px; }
+  .msg.bot.thinking { color: #666; font-style: italic; }
+  .msg.bot .steps { margin-top: 10px; padding-top: 10px; border-top: 1px solid #333; font-size: 13px; }
+  .msg.bot .steps .step { padding: 4px 0; display: flex; gap: 8px; align-items: flex-start; }
+  .msg.bot .steps .step .icon { flex-shrink: 0; }
+  .msg.bot .task-badge { display: inline-block; background: #22c55e20; color: #22c55e; font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-bottom: 8px; font-weight: 600; }
+  .msg.bot .error-badge { display: inline-block; background: #ef444420; color: #ef4444; font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-bottom: 8px; font-weight: 600; }
+  .msg.bot .meta { margin-top: 8px; font-size: 11px; color: #555; }
+  .msg.bot pre { background: #111; padding: 10px; border-radius: 8px; margin-top: 8px; overflow-x: auto; font-size: 13px; font-family: 'SF Mono', Monaco, monospace; }
+
+  .input-area { padding: 16px 20px; border-top: 1px solid #1a1a1a; background: #0f0f0f; display: flex; gap: 10px; }
+  .input-area input { flex: 1; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; padding: 12px 16px; color: #fff; font-size: 15px; outline: none; }
+  .input-area input:focus { border-color: #1d4ed8; }
+  .input-area input::placeholder { color: #555; }
+  .input-area button { background: #1d4ed8; color: #fff; border: none; border-radius: 12px; padding: 12px 20px; font-size: 15px; font-weight: 600; cursor: pointer; }
+  .input-area button:hover { background: #2563eb; }
+  .input-area button:disabled { background: #333; color: #666; cursor: not-allowed; }
+
+  .mode-toggle { display: flex; gap: 4px; }
+  .mode-toggle button { background: #1a1a1a; color: #888; border: 1px solid #2a2a2a; border-radius: 8px; padding: 8px 12px; font-size: 12px; cursor: pointer; font-weight: 500; }
+  .mode-toggle button.active { background: #1d4ed820; color: #60a5fa; border-color: #1d4ed8; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="dot"></div>
+  <h1>Moltbot</h1>
+  <span class="sub" id="provider">connecting...</span>
+</header>
+
+<div class="chat" id="chat"></div>
+
+<div class="input-area">
+  <div class="mode-toggle">
+    <button id="btn-chat" class="active" onclick="setMode('chat')">Chat</button>
+    <button id="btn-task" onclick="setMode('task')">Task</button>
+  </div>
+  <input type="text" id="input" placeholder="Ask me anything or give me a task..." autofocus>
+  <button id="send" onclick="send()">Send</button>
+</div>
+
+<script>
+  let mode = 'chat';
+  const chat = document.getElementById('chat');
+  const input = document.getElementById('input');
+  const sendBtn = document.getElementById('send');
+
+  // Check health on load
+  fetch('/api/health').then(r => r.json()).then(d => {
+    document.getElementById('provider').textContent = d.provider + ' | ' + d.tools + ' tools';
+  }).catch(() => {
+    document.getElementById('provider').textContent = 'offline';
+  });
+
+  function setMode(m) {
+    mode = m;
+    document.getElementById('btn-chat').className = m === 'chat' ? 'active' : '';
+    document.getElementById('btn-task').className = m === 'task' ? 'active' : '';
+    input.placeholder = m === 'chat' ? 'Ask me anything...' : 'Give me a goal to accomplish...';
+    input.focus();
+  }
+
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !sendBtn.disabled) send(); });
+
+  async function send() {
+    const text = input.value.trim();
+    if (!text) return;
+
+    addMsg(text, 'user');
+    input.value = '';
+    sendBtn.disabled = true;
+
+    const thinking = addMsg('Thinking...', 'bot thinking');
+
+    try {
+      const endpoint = mode === 'task' ? '/api/task' : '/api/chat';
+      const body = mode === 'task' ? { goal: text } : { message: text };
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json();
+      thinking.remove();
+
+      if (mode === 'task' || data.autonomous) {
+        renderTaskResult(data);
+      } else if (data.error) {
+        addMsg(data.error, 'bot', { error: true });
+      } else {
+        addMsg(data.response || data.result || 'No response', 'bot');
+      }
+    } catch (err) {
+      thinking.remove();
+      addMsg('Connection error: ' + err.message, 'bot', { error: true });
+    }
+
+    sendBtn.disabled = false;
+    input.focus();
+  }
+
+  function renderTaskResult(data) {
+    const el = document.createElement('div');
+    el.className = 'msg bot';
+
+    let html = '';
+
+    if (data.status === 'completed') {
+      html += '<span class="task-badge">TASK COMPLETED</span>';
+    } else if (data.status === 'failed') {
+      html += '<span class="error-badge">TASK FAILED</span>';
+    }
+
+    html += '<div>' + escapeHtml(data.result || data.error || data.response || 'Done') + '</div>';
+
+    if (data.steps && data.steps.length > 0) {
+      html += '<div class="steps">';
+      data.steps.forEach((s, i) => {
+        const icon = s.status === 'success' ? '&#10003;' : s.status === 'failed' ? '&#10007;' : '&#8226;';
+        const color = s.status === 'success' ? '#22c55e' : s.status === 'failed' ? '#ef4444' : '#666';
+        html += '<div class="step"><span class="icon" style="color:' + color + '">' + icon + '</span><span>' + escapeHtml(s.action) + (s.tool ? ' <span style="color:#555">(' + s.tool + ')</span>' : '') + '</span></div>';
+      });
+      html += '</div>';
+    }
+
+    const duration = data.durationMs ? (data.durationMs / 1000).toFixed(1) + 's' : '';
+    const tokens = data.tokensUsed ? data.tokensUsed + ' tokens' : '';
+    if (duration || tokens) {
+      html += '<div class="meta">' + [duration, tokens].filter(Boolean).join(' | ') + '</div>';
+    }
+
+    el.innerHTML = html;
+    chat.appendChild(el);
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  function addMsg(text, type, opts = {}) {
+    const el = document.createElement('div');
+    el.className = 'msg ' + type + (opts.error ? '' : '');
+    if (type === 'bot thinking') { el.className = 'msg bot thinking'; }
+    if (opts.error) {
+      el.innerHTML = '<span class="error-badge">ERROR</span><div>' + escapeHtml(text) + '</div>';
+    } else {
+      el.textContent = text;
+    }
+    chat.appendChild(el);
+    chat.scrollTop = chat.scrollHeight;
+    return el;
+  }
+
+  function escapeHtml(s) {
+    if (!s) return '';
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+  }
+</script>
+</body>
+</html>
