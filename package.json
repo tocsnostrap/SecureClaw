@@ -86,6 +86,7 @@
     "@types/passport": "^1.0.17",
     "@types/passport-google-oauth20": "^2.0.17",
     "@types/passport-oauth2": "^1.8.0",
+    "@types/pg": "^8.16.0",
     "@types/react": "~19.1.10",
     "babel-plugin-react-compiler": "^19.0.0-beta-e993439-20250117",
     "drizzle-kit": "^0.31.4",
