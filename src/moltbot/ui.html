@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Moltbot</title>
+<style>
+  :root { --bg: #09090b; --surface: #18181b; --border: #27272a; --text: #fafafa; --muted: #71717a; --accent: #6366f1; --accent2: #818cf8; --green: #22c55e; --red: #ef4444; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+
+  header { padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .logo { width: 28px; height: 28px; background: linear-gradient(135deg, var(--accent), #a855f7); border-radius: 7px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px; color: white; }
+  header h1 { font-size: 15px; font-weight: 700; flex: 1; }
+  header .meta { font-size: 11px; color: var(--muted); }
+  header button { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 5px 9px; font-size: 11px; cursor: pointer; }
+
+  #chat { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 92%; animation: fadeIn 0.15s; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } }
+  .msg.user { align-self: flex-end; }
+  .msg.user .b { background: var(--accent); color: white; border-radius: 14px 14px 4px 14px; padding: 10px 13px; font-size: 14px; line-height: 1.5; }
+  .msg.bot { align-self: flex-start; width: 92%; }
+  .msg.bot .b { background: var(--surface); border: 1px solid var(--border); border-radius: 14px 14px 14px 4px; padding: 12px 13px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word; }
+  .msg.bot .b code { background: var(--bg); padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+  .msg.bot .b pre { background: var(--bg); padding: 8px; border-radius: 6px; overflow-x: auto; font-size: 12px; margin: 6px 0; white-space: pre-wrap; }
+
+  .badge { display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+  .badge.ok { background: rgba(34,197,94,0.15); color: var(--green); }
+  .badge.fail { background: rgba(239,68,68,0.15); color: var(--red); }
+  .badge.work { background: rgba(99,102,241,0.15); color: var(--accent2); }
+
+  .steps { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 12px; }
+  .step { display: flex; gap: 6px; padding: 2px 0; color: var(--muted); }
+  .step .i { width: 14px; text-align: center; flex-shrink: 0; }
+  .step.ok .i { color: var(--green); }
+  .step.fail .i { color: var(--red); }
+  .step .t { color: #3f3f46; font-size: 10px; }
+  .task-meta { margin-top: 6px; font-size: 10px; color: #3f3f46; }
+
+  .dots { display: inline-flex; gap: 3px; padding: 6px 0; }
+  .dots span { width: 5px; height: 5px; background: var(--accent2); border-radius: 50%; animation: dot 1.4s infinite; }
+  .dots span:nth-child(2) { animation-delay: 0.2s; }
+  .dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes dot { 0%,80%,100% { opacity: 0.3; } 40% { opacity: 1; } }
+
+  .input-wrap { padding: 10px 14px; background: var(--surface); border-top: 1px solid var(--border); flex-shrink: 0; }
+  .input-row { display: flex; gap: 8px; }
+  .input-row input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; color: var(--text); font-size: 14px; outline: none; }
+  .input-row input:focus { border-color: var(--accent); }
+  .input-row input::placeholder { color: #3f3f46; }
+  .input-row button { background: var(--accent); color: white; border: none; border-radius: 10px; width: 40px; height: 40px; font-size: 16px; cursor: pointer; }
+  .input-row button:disabled { background: #27272a; color: #3f3f46; }
+
+  .empty { text-align: center; padding: 40px 20px; color: var(--muted); }
+  .empty h2 { font-size: 18px; color: var(--text); margin-bottom: 6px; }
+  .empty p { font-size: 13px; margin-bottom: 14px; line-height: 1.5; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; }
+  .chips button { background: var(--surface); border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 6px 10px; font-size: 11px; cursor: pointer; }
+  .chips button:hover { border-color: var(--accent); color: var(--text); }
+
+  .panel { display: none; position: fixed; inset: 0; z-index: 100; background: var(--bg); flex-direction: column; }
+  .panel.open { display: flex; }
+  .panel-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .panel-close { background: none; border: none; color: var(--muted); font-size: 22px; cursor: pointer; }
+  .panel-body { flex: 1; overflow-y: auto; padding: 14px; }
+  .panel-item { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 6px; font-size: 13px; }
+  .panel-item .name { font-weight: 600; color: var(--accent2); }
+  .panel-item .desc { color: var(--muted); font-size: 11px; margin-top: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">M</div>
+  <h1>Moltbot</h1>
+  <span class="meta" id="status">...</span>
+  <button onclick="clearChat()">Clear</button>
+  <button onclick="showPanel('tools')">Tools</button>
+  <button onclick="showPanel('history')">History</button>
+</header>
+
+<div id="chat">
+  <div class="empty" id="empty">
+    <h2>Moltbot</h2>
+    <p>I'm an autonomous AI. I don't just talk — I execute. Give me a task and I'll plan it, run real tools, and deliver results.</p>
+    <div class="chips">
+      <button onclick="go('Get the weather in London')">Weather London</button>
+      <button onclick="go('Search for latest AI news and summarize')">AI News</button>
+      <button onclick="go('Calculate 2^32')">Math</button>
+      <button onclick="go('Read the Hacker News RSS feed')">Hacker News</button>
+      <button onclick="go('What can you do?')">Capabilities</button>
+    </div>
+  </div>
+</div>
+
+<div class="panel" id="panel-tools">
+  <div class="panel-header"><h2 style="font-size:15px">Tools</h2><button class="panel-close" onclick="hidePanel('tools')">&times;</button></div>
+  <div class="panel-body" id="tools-list"></div>
+</div>
+<div class="panel" id="panel-history">
+  <div class="panel-header"><h2 style="font-size:15px">History</h2><button class="panel-close" onclick="hidePanel('history')">&times;</button></div>
+  <div class="panel-body" id="history-list"></div>
+</div>
+
+<div class="input-wrap">
+  <div class="input-row">
+    <input id="input" placeholder="Ask anything or give me a task..." autofocus autocomplete="off">
+    <button id="btn" onclick="send()">&#9654;</button>
+  </div>
+</div>
+
+<script>
+const chat=document.getElementById('chat'), inp=document.getElementById('input'), btn=document.getElementById('btn');
+
+fetch('/api/health').then(r=>r.json()).then(d=>{
+  document.getElementById('status').textContent=`${d.provider} | ${d.tools} tools`;
+}).catch(()=>document.getElementById('status').textContent='offline');
+
+inp.addEventListener('keydown',e=>{if(e.key==='Enter'&&!btn.disabled)send()});
+
+function go(t){inp.value=t;send()}
+
+async function send(){
+  const text=inp.value.trim();
+  if(!text)return;
+  const el=document.getElementById('empty');if(el)el.remove();
+  addMsg(text,'user');
+  inp.value='';btn.disabled=true;
+  const loading=addLoading();
+
+  try{
+    const res=await fetch('/api/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text})});
+    const data=await res.json();
+    loading.remove();
+
+    if(data.error&&!data.response){
+      addError(data.error);
+    } else if(data.type==='task'){
+      addTask(data);
+    } else {
+      addMsg(data.response||'No response','bot');
+    }
+  }catch(err){
+    loading.remove();
+    addError(err.message);
+  }
+  btn.disabled=false;inp.focus();
+}
+
+function addMsg(text,who){
+  const d=document.createElement('div');d.className='msg '+who;
+  d.innerHTML=`<div class="b">${who==='bot'?fmt(text):esc(text)}</div>`;
+  chat.appendChild(d);scroll();
+}
+function addError(text){
+  const d=document.createElement('div');d.className='msg bot';
+  d.innerHTML=`<div class="b"><span class="badge fail">Error</span><br>${esc(text)}</div>`;
+  chat.appendChild(d);scroll();
+}
+function addLoading(){
+  const d=document.createElement('div');d.className='msg bot';
+  d.innerHTML=`<div class="b"><span class="badge work">Working</span><div class="dots"><span></span><span></span><span></span></div></div>`;
+  chat.appendChild(d);scroll();return d;
+}
+function addTask(data){
+  const d=document.createElement('div');d.className='msg bot';
+  let h=`<span class="badge ${data.status==='completed'?'ok':'fail'}">${data.status}</span>`;
+  h+=fmt(data.response||data.error||'Done');
+  if(data.steps&&data.steps.length){
+    h+='<div class="steps">';
+    data.steps.forEach(s=>{
+      const c=s.status==='success'?'ok':s.status==='failed'?'fail':'';
+      const i=s.status==='success'?'✓':s.status==='failed'?'✗':'•';
+      h+=`<div class="step ${c}"><span class="i">${i}</span><span>${esc(s.action)} ${s.tool?'<span class="t">'+s.tool+'</span>':''}</span></div>`;
+    });
+    h+='</div>';
+  }
+  const m=[];
+  if(data.durationMs)m.push((data.durationMs/1000).toFixed(1)+'s');
+  if(data.tokensUsed)m.push(data.tokensUsed+' tokens');
+  if(data.steps)m.push(data.steps.filter(s=>s.status==='success').length+'/'+data.steps.length+' ok');
+  if(m.length)h+=`<div class="task-meta">${m.join(' · ')}</div>`;
+  d.innerHTML=`<div class="b">${h}</div>`;
+  chat.appendChild(d);scroll();
+}
+
+function fmt(t){
+  if(!t)return'';
+  return esc(t).replace(/```(\w*)\n([\s\S]*?)```/g,'<pre>$2</pre>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>');
+}
+function esc(s){return s?s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'):''}
+function scroll(){setTimeout(()=>chat.scrollTop=chat.scrollHeight,30)}
+
+function clearChat(){
+  chat.innerHTML='<div class="empty" id="empty"><h2>Moltbot</h2><p>I\'m an autonomous AI. Give me a task.</p><div class="chips"><button onclick="go(\'Get the weather in London\')">Weather</button><button onclick="go(\'Search for latest AI news\')">AI News</button><button onclick="go(\'Calculate 2^32\')">Math</button></div></div>';
+  fetch('/api/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+}
+
+async function showPanel(type){
+  document.getElementById('panel-'+type).classList.add('open');
+  try{
+    if(type==='tools'){
+      const d=await(await fetch('/api/tools')).json();
+      document.getElementById('tools-list').innerHTML=d.tools.map(t=>`<div class="panel-item"><div class="name">${esc(t.name)}</div><div class="desc">${esc(t.description)}</div></div>`).join('');
+    }else{
+      const d=await(await fetch('/api/tasks')).json();
+      document.getElementById('history-list').innerHTML=(!d.tasks||!d.tasks.length)?'<p style="color:var(--muted);text-align:center">No tasks yet</p>':d.tasks.map(t=>`<div class="panel-item"><div class="name" style="color:${t.status==='completed'?'var(--green)':'var(--red)'}">${esc(t.goal)}</div><div class="desc">${t.status} · ${new Date(t.started_at||t.startedAt).toLocaleString()}</div></div>`).join('');
+    }
+  }catch(e){document.getElementById(type+'-list').innerHTML='<p style="color:var(--red)">Failed</p>'}
+}
+function hidePanel(type){document.getElementById('panel-'+type).classList.remove('open')}
+</script>
+</body>
+</html>
